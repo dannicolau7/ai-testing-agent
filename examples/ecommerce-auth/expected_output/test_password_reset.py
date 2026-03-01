@@ -62,7 +62,7 @@ class TestPasswordReset:
         # Try to reset with expired token
         response = client.post(f'/api/auth/password-reset/confirm', json={
             'token': token,
-            'new_password': 'NewSecurePass123!'
+            'new_password': 'Newchange-me'
         })
         
         assert response.status_code == 410  # Gone
@@ -86,7 +86,7 @@ class TestPasswordReset:
         # First use - should succeed
         response = client.post('/api/auth/password-reset/confirm', json={
             'token': token,
-            'new_password': 'NewSecurePass123!'
+            'new_password': 'Newchange-me'
         })
         assert response.status_code == 200
         

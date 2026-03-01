@@ -153,7 +153,7 @@ SUPPORT THESE AUTH TYPES:
      login_url: /api/login
      credentials:
        email: test@example.com
-       password: TestPass123!
+       password: change-me
      token_field: token  # field name in response
 
    Generated conftest.py:
@@ -258,7 +258,7 @@ SUPPORT THESE BODY TYPES:
    def test_login(api_client, auth_headers):
        payload = {
            "email": "test@example.com",
-           "password": "TestPass123!"
+           "password": "change-me"
        }
        response = api_client.post(
            f"{BASE_URL}/api/login",
@@ -367,17 +367,17 @@ auth:
   login_url: /api/login
   credentials:
     email: testuser@company.com
-    password: TestPass123!
+    password: change-me
 
 users:
   valid_user:
     email: john@test.com
-    password: ValidPass123!
+    password: change-me
     user_id: "usr_123456"
     role: customer
   admin_user:
     email: admin@test.com
-    password: AdminPass456!
+    password: change-me
     role: admin
   locked_user:
     email: locked@test.com
@@ -453,7 +453,7 @@ class DataManager:
         """Replace placeholders in tests with real data"""
         # Replace placeholder values with real ones
         # test@example.com → john@test.com (from YAML)
-        # ValidPass123! → their real password
+        # change-me → their real password
         return test_code
 
 USAGE:
@@ -626,7 +626,7 @@ INTERACTIVE MODE:
 │  Body:                                      │
 │  {                                          │
 │    "email": "test@test.com",                │
-│    "password": "TestPass123!"               │
+│    "password": "change-me"               │
 │  }                                          │
 │                                             │
 │  [Send] [Save as Test] [Add to Collection]  │
@@ -676,7 +676,7 @@ def test_{name}(api_client, auth_headers):
         f"{BASE_URL}/api/login",
         json={
             "email": "test@test.com",
-            "password": "TestPass123!"
+            "password": "change-me"
         },
         headers=auth_headers
     )
@@ -835,7 +835,7 @@ QUALITY REQUIREMENTS:
    YES: email = "john.doe@company.com"
    
    NOT: password = "password123"
-   YES: password = "SecureP@ss2024!"
+   YES: password = "change-me"
    
    NOT: user_id = "123"
    YES: user_id = "usr_a1b2c3d4"

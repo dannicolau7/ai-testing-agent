@@ -633,18 +633,18 @@ def business_rules():
             'users': {
                 'valid_user': {
                     'email': 'john.doe@test.com',
-                    'password': 'SecurePass123!',
+                    'password': 'change-me',
                     'user_id': 'usr_123456',
                     'role': 'customer'
                 },
                 'admin_user': {
                     'email': 'admin@test.com',
-                    'password': 'AdminPass456!',
+                    'password': 'change-me',
                     'role': 'admin'
                 },
                 'locked_user': {
                     'email': 'locked@test.com',
-                    'password': 'LockedPass789!',
+                    'password': 'change-me',
                     'status': 'locked'
                 }
             },

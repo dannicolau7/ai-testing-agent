@@ -41,7 +41,7 @@ class AuthHandler:
                     'login_url': '/api/login',
                     'credentials': {
                         'email': 'test@example.com',
-                        'password': 'TestPass123!'
+                        'password': 'change-me'
                     },
                     'token_field': 'token'
                 }

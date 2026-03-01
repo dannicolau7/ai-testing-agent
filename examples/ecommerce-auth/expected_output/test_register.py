@@ -23,7 +23,7 @@ class TestRegistration:
         """
         response = client.post('/api/auth/register', json={
             'email': 'newuser@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'John Doe',
             'phone': '+1234567890'
         })
@@ -71,7 +71,7 @@ class TestRegistration:
         for invalid_email in invalid_emails:
             response = client.post('/api/auth/register', json={
                 'email': invalid_email,
-                'password': 'SecurePass123!',
+                'password': 'change-me',
                 'name': 'Test User',
                 'phone': '+1234567890'
             })
@@ -151,7 +151,7 @@ class TestRegistration:
         # Register user
         response = client.post('/api/auth/register', json={
             'email': 'expire_test@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'Test User',
             'phone': '+1234567890'
         })
@@ -189,7 +189,7 @@ class TestRegistration:
         # Register user
         response = client.post('/api/auth/register', json={
             'email': 'singleuse@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'Test User',
             'phone': '+1234567890'
         })
@@ -224,7 +224,7 @@ class TestRegistration:
         for i in range(3):
             response = client.post('/api/auth/register', json={
                 'email': f'ratelimit{i}@example.com',
-                'password': 'SecurePass123!',
+                'password': 'change-me',
                 'name': f'User {i}',
                 'phone': f'+123456789{i}'
             })
@@ -233,7 +233,7 @@ class TestRegistration:
         # 4th attempt should be rate limited
         response = client.post('/api/auth/register', json={
             'email': 'ratelimit4@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'User 4',
             'phone': '+1234567894'
         })
@@ -265,7 +265,7 @@ class TestRegistration:
         for payload in sql_injection_payloads:
             response = client.post('/api/auth/register', json={
                 'email': payload,
-                'password': 'SecurePass123!',
+                'password': 'change-me',
                 'name': "Test' OR '1'='1",
                 'phone': '+1234567890'
             })
@@ -299,7 +299,7 @@ class TestRegistration:
         for i, payload in enumerate(xss_payloads):
             response = client.post('/api/auth/register', json={
                 'email': f'xss{i}@example.com',
-                'password': 'SecurePass123!',
+                'password': 'change-me',
                 'name': payload,
                 'phone': '+1234567890'
             })
@@ -326,7 +326,7 @@ class TestRegistration:
         # Register with only required fields
         response = client.post('/api/auth/register', json={
             'email': 'minimal@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'Minimal User',
             'phone': '+1234567890'
         })
@@ -338,7 +338,7 @@ class TestRegistration:
         # Register with all optional fields
         response = client.post('/api/auth/register', json={
             'email': 'complete@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'name': 'Complete User',
             'phone': '+1234567890',
             'address': '123 Main St, City, State 12345',

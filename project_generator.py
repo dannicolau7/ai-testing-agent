@@ -559,12 +559,12 @@ jobs:
             "users": {
                 "valid_user": {
                     "email": "john.doe@example.com",
-                    "password": "ValidPass123!",
+                    "password": "change-me",
                     "user_id": "usr_123456"
                 },
                 "admin_user": {
                     "email": "admin@example.com",
-                    "password": "AdminPass456!",
+                    "password": "change-me",
                     "role": "admin"
                 }
             },

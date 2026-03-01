@@ -32,7 +32,7 @@ ENDPOINT: POST /api/login
 Request Body:
 {
   "email": "user@example.com",
-  "password": "SecurePass123!"
+  "password": "change-me"
 }
 
 Success Response (200):
@@ -82,7 +82,7 @@ ENDPOINT: POST /api/auth/login
 Request Body:
 {
   "email": "customer@example.com",
-  "password": "SecurePass123!"
+  "password": "change-me"
 }
 
 Success Response (200):
@@ -261,7 +261,7 @@ Request Body:
 {
   "email": "new@example.com",
   "firstName": "Jane",
-  "password": "SecurePass123!"
+  "password": "change-me"
 }
 
 Success Response (201):

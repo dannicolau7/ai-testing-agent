@@ -7,7 +7,7 @@ ENDPOINT: POST /api/login
 Request Body:
 {
   "email": "user@example.com",
-  "password": "SecurePass123!"
+  "password": "change-me"
 }
 
 Success Response (200):

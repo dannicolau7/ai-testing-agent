@@ -28,10 +28,7 @@ test_output/
 test_outputs/
 
 # Test data (may contain real credentials)
-test_data/*.yaml
-test_data/*.json
-test_data/*.xlsx
-!test_data/example_test_data.yaml
+test_data/
 
 # Stripe / billing secrets
 test_stripe_charges.txt

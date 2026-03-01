@@ -78,7 +78,7 @@ class RequestBodyHandler:
 def test_create_user(api_client, auth_headers):
     payload = {
         "email": "test@example.com",
-        "password": "SecurePass123!",
+        "password": "change-me",
         "name": "John Doe"
     }
     response = api_client.post(
@@ -123,7 +123,7 @@ class DataManager:
 users:
   valid_user:
     email: john@test.com
-    password: ValidPass123!
+    password: change-me
   admin_user:
     email: admin@test.com
     role: admin

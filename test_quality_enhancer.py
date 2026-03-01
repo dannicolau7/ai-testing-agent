@@ -597,7 +597,7 @@ class {class_name}:
         """Generate multiple test scenarios."""
         # Return list of tuples with test data + expected status
         return [
-            ["valid@email.com", "SecurePass123!", 200],
+            ["valid@email.com", "change-me", 200],
             ["invalid-email", "weak", 400],
             ["", "", 400],
             ["test@example.com", "VeryLongPassword123!@#", 200],

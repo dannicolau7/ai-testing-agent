@@ -408,7 +408,7 @@ def test_{endpoint_name}_invalid_id(api_client{auth_param}):
             'string': 'test_value',
             'str': 'test_value',
             'email': 'test@example.com',
-            'password': 'SecurePass123!',
+            'password': 'change-me',
             'int': 42,
             'integer': 42,
             'float': 19.99,

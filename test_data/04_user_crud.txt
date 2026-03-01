@@ -1,0 +1,104 @@
+User Management REST API
+
+Base URL: https://api.example.com
+Authentication: Bearer token required
+
+ENDPOINTS:
+
+1. LIST USERS
+GET /api/users
+Query Parameters:
+- page: integer (default: 1)
+- limit: integer (default: 20, max: 100)
+
+Success Response (200):
+{
+  "data": [
+    {
+      "id": "usr_001",
+      "email": "john@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "user"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 20,
+    "total": 156
+  }
+}
+
+2. GET USER
+GET /api/users/{userId}
+
+Success Response (200):
+{
+  "id": "usr_001",
+  "email": "john@example.com",
+  "firstName": "John"
+}
+
+Error (404):
+{
+  "error": "User not found"
+}
+
+3. CREATE USER
+POST /api/users
+
+Request Body:
+{
+  "email": "new@example.com",
+  "firstName": "Jane",
+  "password": "SecurePass123!"
+}
+
+Success Response (201):
+{
+  "id": "usr_002",
+  "email": "new@example.com"
+}
+
+4. UPDATE USER
+PUT /api/users/{userId}
+
+Request Body:
+{
+  "firstName": "Jane"
+}
+
+Success Response (200)
+
+5. DELETE USER
+DELETE /api/users/{userId}
+
+Success Response (204)
+
+Business Rules:
+- Email must be unique
+- Password minimum 8 characters
+- Cannot delete own account
+
+Test Scenarios:
+LIST:
+- Default pagination
+- Custom limit
+- Max limit exceeded → 400
+
+GET:
+- Valid user → 200
+- Invalid user → 404
+
+CREATE:
+- Valid data → 201
+- Duplicate email → 409
+- Invalid email → 400
+
+UPDATE:
+- Valid update → 200
+- Non-existent user → 404
+
+DELETE:
+- Valid delete → 204
+- Delete self → 403

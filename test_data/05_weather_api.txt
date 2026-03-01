@@ -1,0 +1,61 @@
+Weather API
+
+Base URL: https://api.weather.example.com
+
+ENDPOINT: GET /api/weather/current
+Authentication: API Key (query parameter)
+
+Request:
+GET /api/weather/current?city=San Francisco&apiKey=your-key
+
+Query Parameters:
+- city: string (required)
+- units: string (optional) - "metric" or "imperial"
+- apiKey: string (required)
+
+Success Response (200):
+{
+  "location": {
+    "city": "San Francisco",
+    "country": "US",
+    "coordinates": {
+      "lat": 37.7749,
+      "lon": -122.4194
+    }
+  },
+  "weather": {
+    "temperature": 18.5,
+    "humidity": 65,
+    "description": "partly cloudy"
+  }
+}
+
+Error Responses:
+
+400 Bad Request:
+{
+  "error": "Missing required parameter: city"
+}
+
+401 Unauthorized:
+{
+  "error": "Invalid or missing API key"
+}
+
+404 Not Found:
+{
+  "error": "City not found"
+}
+
+Business Rules:
+- City name required
+- Default units: metric (Celsius)
+- Rate limit: 60 requests per hour
+
+Test Scenarios:
+1. Valid city → 200
+2. Missing city → 400
+3. Missing API key → 401
+4. Invalid API key → 401
+5. Non-existent city → 404
+6. Metric vs Imperial units

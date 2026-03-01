@@ -1,0 +1,64 @@
+E-Commerce Authentication API
+
+Base URL: https://api.shop.example.com
+
+ENDPOINT: POST /api/auth/login
+
+Request Body:
+{
+  "email": "customer@example.com",
+  "password": "SecurePass123!"
+}
+
+Success Response (200):
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "user": {
+    "id": "usr_abc123",
+    "email": "customer@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "role": "customer"
+  },
+  "expiresIn": 3600
+}
+
+Error Responses:
+
+400 Bad Request:
+{
+  "error": "Missing required field: email"
+}
+
+401 Unauthorized:
+{
+  "error": "Invalid email or password"
+}
+
+429 Too Many Requests:
+{
+  "error": "Account temporarily locked",
+  "retryAfter": 300
+}
+
+Business Rules:
+- Email must be valid format
+- Password minimum 8 characters
+- Lock account after 5 failed attempts
+- Token expires after 1 hour
+- Must use HTTPS only
+
+Security Requirements:
+- Block SQL injection attempts
+- Block XSS attempts
+- Log all failed login attempts
+
+Test Scenarios:
+1. Valid credentials → 200 with token
+2. Missing email → 400
+3. Invalid email format → 400
+4. Wrong password → 401
+5. 5 failed attempts → 429
+6. SQL injection attempt → 400
+7. XSS attempt → 400
+8. Token expiry verification

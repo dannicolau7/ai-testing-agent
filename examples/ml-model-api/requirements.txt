@@ -1,0 +1,462 @@
+# ML Model API Testing Requirements
+# Test ID Prefix: ML
+
+## Model Prediction (ML-001 to ML-020)
+
+ML-001: Single prediction with valid input
+- Accepts feature vector
+- Returns prediction score/class
+- Includes confidence score
+- Response time < 100ms
+
+ML-002: Batch prediction
+- Accepts array of inputs
+- Returns array of predictions
+- Maintains input order
+- Efficient processing
+
+ML-003: Input validation
+- Validates feature count matches model
+- Validates data types
+- Validates value ranges
+- Returns 400 with clear errors
+
+ML-004: Missing feature handling
+- Required features must be present
+- Default values for optional features
+- Returns 400 if required missing
+- Documents required features
+
+ML-005: Out-of-range values
+- Values beyond training range
+- Returns prediction with low confidence
+- Logs anomaly
+- Optional: Reject outliers
+
+ML-006: Text input preprocessing
+- Tokenization
+- Lowercasing
+- Special character handling
+- Maximum length enforcement
+
+ML-007: Image input validation
+- Validates image format (jpg, png)
+- Validates dimensions
+- Validates file size (<5MB)
+- Auto-resize if needed
+
+ML-008: Audio input processing
+- Validates audio format
+- Duration limits
+- Sample rate validation
+- Feature extraction
+
+ML-009: Probability calibration
+- Returns calibrated probabilities
+- Confidence intervals
+- Uncertainty quantification
+- Temperature scaling
+
+ML-010: Multi-class prediction
+- Returns probabilities for all classes
+- Top-k predictions
+- Class names included
+- Sorted by confidence
+
+ML-011: Multi-label prediction
+- Multiple labels per input
+- Independent probabilities
+- Threshold configuration
+- Label dependencies
+
+ML-012: Regression prediction
+- Numeric output
+- Prediction intervals
+- Feature importance
+- Residual analysis
+
+ML-013: Time series forecasting
+- Accepts historical data
+- Forecasts future values
+- Returns confidence bands
+- Handles seasonality
+
+ML-014: Ensemble predictions
+- Multiple models combined
+- Voting or averaging strategy
+- Individual model outputs available
+- Ensemble confidence
+
+ML-015: Real-time feature computation
+- Computes features from raw input
+- Feature engineering pipeline
+- Caching for expensive features
+- Feature store integration
+
+ML-016: Feature importance
+- Returns top contributing features
+- SHAP values or similar
+- Per-prediction explanations
+- Global feature importance
+
+ML-017: Prediction caching
+- Cache common predictions
+- TTL configurable
+- Cache hit metrics
+- Invalidation strategy
+
+ML-018: A/B testing support
+- Route to different model versions
+- Percentage-based routing
+- Track metrics per version
+- Shadow mode for new models
+
+ML-019: Fallback handling
+- Fallback to baseline model on error
+- Graceful degradation
+- Logs fallback events
+- Alerts on repeated fallbacks
+
+ML-020: Prediction logging
+- Log all predictions
+- Include input, output, metadata
+- Sampling for high-volume
+- Used for monitoring/retraining
+
+## Model Management (ML-021 to ML-035)
+
+ML-021: Model versioning
+- Multiple versions deployable
+- Version in API endpoint or header
+- Semantic versioning (1.0.0)
+- Deprecation warnings
+
+ML-022: Model metadata
+- Returns model information
+- Training date, accuracy metrics
+- Feature list, data requirements
+- Model type and architecture
+
+ML-023: Model health check
+- GET /health endpoint
+- Tests model loading
+- Sample prediction test
+- Response time check
+
+ML-024: Model warm-up
+- Pre-loads model on startup
+- Compiles optimized graph
+- Caches common predictions
+- Ready status indicator
+
+ML-025: Model update without downtime
+- Blue-green deployment
+- Gradual rollout
+- Rollback capability
+- Zero-downtime updates
+
+ML-026: Model A/B testing
+- Concurrent model versions
+- Traffic splitting
+- Metric comparison
+- Statistical significance testing
+
+ML-027: Model monitoring
+- Prediction distribution tracking
+- Input drift detection
+- Performance degradation alerts
+- Concept drift monitoring
+
+ML-028: Feature drift detection
+- Compares input distribution to training
+- Statistical tests (KS, chi-square)
+- Alerts on significant drift
+- Visualization dashboards
+
+ML-029: Model retraining triggers
+- Scheduled retraining
+- Performance-based triggers
+- Data drift triggers
+- Manual trigger API
+
+ML-030: Model explainability
+- LIME/SHAP integration
+- Feature contribution
+- Counterfactual examples
+- Decision rules extraction
+
+ML-031: Model fairness testing
+- Bias detection across groups
+- Fairness metrics (demographic parity, etc.)
+- Automated bias reports
+- Remediation suggestions
+
+ML-032: Model documentation
+- Auto-generated API docs
+- Model card with details
+- Example requests/responses
+- Performance benchmarks
+
+ML-033: Model registry integration
+- Pull models from MLflow/registry
+- Version tracking
+- Metadata sync
+- Promotion workflow
+
+ML-034: Model performance metrics
+- Latency (p50, p95, p99)
+- Throughput (requests/sec)
+- Error rate
+- Resource utilization
+
+ML-035: Model comparison
+- Compare multiple versions
+- Side-by-side predictions
+- Performance metrics comparison
+- Champion-challenger testing
+
+## Data Validation (ML-036 to ML-045)
+
+ML-036: Schema validation
+- JSON schema enforcement
+- Required fields check
+- Type validation
+- Custom validators
+
+ML-037: Data type validation
+- Numeric, string, boolean, array
+- Nested object validation
+- Enum validation
+- Date/time format validation
+
+ML-038: Range validation
+- Min/max for numeric features
+- Length limits for strings
+- Array size limits
+- Acceptable value sets
+
+ML-039: Data normalization
+- Feature scaling (min-max, z-score)
+- Log transforms
+- One-hot encoding
+- Consistent with training
+
+ML-040: Missing value imputation
+- Mean/median imputation
+- Forward fill
+- Model-based imputation
+- Configurable strategies
+
+ML-041: Outlier detection
+- Statistical methods (IQR, z-score)
+- Isolation forest
+- Reject or flag outliers
+- Logging outlier inputs
+
+ML-042: Data consistency checks
+- Cross-field validation
+- Business rule validation
+- Temporal consistency
+- Referential integrity
+
+ML-043: Feature encoding
+- Categorical to numeric
+- Text to embeddings
+- Date to cyclical features
+- Handles unknown categories
+
+ML-044: Feature selection
+- Uses only relevant features
+- Ignores extra features
+- Warning for missing expected features
+- Feature importance ranking
+
+ML-045: Data quality metrics
+- Completeness score
+- Validity score
+- Consistency score
+- Overall data quality index
+
+## Performance & Scalability (ML-046 to ML-060)
+
+ML-046: Low latency predictions (<100ms)
+- Optimized model format (ONNX, TensorRT)
+- GPU acceleration if available
+- Batch processing for efficiency
+- Caching strategies
+
+ML-047: High throughput
+- Handles 1000+ requests/sec
+- Horizontal scaling
+- Load balancing
+- Connection pooling
+
+ML-048: Batch processing optimization
+- Dynamic batching
+- Batch size tuning
+- Timeout configuration
+- Partial batch processing
+
+ML-049: GPU utilization
+- GPU acceleration for supported models
+- Multi-GPU support
+- GPU memory management
+- Fallback to CPU
+
+ML-050: Model quantization
+- INT8/INT16 quantization
+- Reduced model size
+- Faster inference
+- Acceptable accuracy trade-off
+
+ML-051: Model pruning
+- Remove unnecessary weights
+- Smaller model footprint
+- Faster loading
+- Minimal accuracy loss
+
+ML-052: Model compilation
+- TensorRT, TFLite, ONNX Runtime
+- Platform-specific optimization
+- Graph optimization
+- Reduced latency
+
+ML-053: Caching strategies
+- Input-output cache
+- Feature cache
+- Model cache in memory
+- Distributed caching (Redis)
+
+ML-054: Async predictions
+- Non-blocking API
+- Callback or polling
+- Job queue integration
+- Status tracking
+
+ML-055: Rate limiting
+- Per-user rate limits
+- Global rate limits
+- Burst handling
+- Queue management
+
+ML-056: Auto-scaling
+- CPU/GPU utilization triggers
+- Request queue length triggers
+- Scale up/down policies
+- Min/max replica count
+
+ML-057: Resource monitoring
+- CPU, GPU, memory usage
+- Request latency tracking
+- Queue depths
+- Error rates
+
+ML-058: Cost optimization
+- Spot instance usage
+- Model sharing across requests
+- Efficient batching
+- Resource right-sizing
+
+ML-059: Cold start optimization
+- Keep models warm
+- Lazy loading strategies
+- Startup time minimization
+- Connection pre-warming
+
+ML-060: Load testing
+- Sustained load testing
+- Spike testing
+- Stress testing
+- Performance benchmarks
+
+## Security & Compliance (ML-061 to ML-075)
+
+ML-061: API authentication
+- API key validation
+- JWT token support
+- OAuth2 integration
+- Role-based access
+
+ML-062: Rate limiting per user
+- API key-based limits
+- User tier limits
+- Quota management
+- Overage handling
+
+ML-063: Input sanitization
+- SQL injection prevention
+- XSS prevention
+- Command injection prevention
+- Path traversal prevention
+
+ML-064: Sensitive data handling
+- PII detection
+- Data masking
+- Encryption at rest
+- Encryption in transit
+
+ML-065: Model access control
+- Private model protection
+- Team-based permissions
+- API key scoping
+- Audit logging
+
+ML-066: Prediction audit trail
+- Log all predictions
+- Include user, timestamp, input/output
+- Immutable logs
+- Compliance reporting
+
+ML-067: Data retention policies
+- Configurable retention periods
+- Automatic data purging
+- Archival strategies
+- Legal hold support
+
+ML-068: GDPR compliance
+- Right to be forgotten
+- Data export capability
+- Consent management
+- Privacy by design
+
+ML-069: Model intellectual property
+- Prevent model extraction attacks
+- Rate limiting on predictions
+- Watermarking predictions
+- Terms of service enforcement
+
+ML-070: Adversarial input detection
+- Detect adversarial examples
+- Anomaly scoring
+- Reject suspicious inputs
+- Alert on attacks
+
+ML-071: Model bias monitoring
+- Fairness metrics tracking
+- Bias alerts
+- Demographic parity checks
+- Remediation workflows
+
+ML-072: Compliance reporting
+- Automated compliance checks
+- Audit reports generation
+- Regulatory requirement tracking
+- Certification support
+
+ML-073: Secure model updates
+- Signed model artifacts
+- Checksum validation
+- Secure transfer
+- Access controls
+
+ML-074: Dependency scanning
+- Vulnerability scanning
+- Outdated package detection
+- Security patch management
+- License compliance
+
+ML-075: Incident response
+- Alert on anomalies
+- Automated rollback
+- Incident logging
+- Post-mortem analysis

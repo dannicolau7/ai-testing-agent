@@ -1,0 +1,59 @@
+Payment Processing API
+
+Base URL: https://api.payments.example.com
+
+ENDPOINT: POST /api/payments/charge
+Authentication: Bearer token required
+
+Request Body:
+{
+  "amount": 4999,
+  "currency": "USD",
+  "cardNumber": "4242424242424242",
+  "cardExpiry": "12/25",
+  "cvv": "123",
+  "customerId": "cust_abc123"
+}
+
+Success Response (201):
+{
+  "id": "ch_xyz789",
+  "status": "succeeded",
+  "amount": 4999,
+  "currency": "USD",
+  "cardLast4": "4242",
+  "receiptUrl": "https://receipts.example.com/ch_xyz789"
+}
+
+Error Responses:
+
+400 Bad Request:
+{
+  "error": "Amount must be at least $0.50 USD"
+}
+
+402 Payment Required:
+{
+  "error": "Your card was declined"
+}
+
+Business Rules:
+- Amount in cents (4999 = $49.99)
+- Minimum amount: $0.50 USD
+- Maximum amount: $999,999.99 USD
+- Card number must pass Luhn algorithm
+- CVV must be 3 digits (4 for Amex)
+
+Security Requirements:
+- Never log full card number
+- Never return CVV in response
+- PCI DSS compliant
+- Encrypt card data in transit
+
+Test Scenarios:
+1. Valid payment → 201
+2. Amount too small → 400
+3. Card fails Luhn check → 402
+4. Expired card → 402
+5. Invalid CVV → 400
+6. Card declined → 402

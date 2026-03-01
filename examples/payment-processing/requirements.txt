@@ -1,0 +1,428 @@
+# Payment Processing API Testing Requirements
+# Test ID Prefix: PAY
+
+## Payment Creation & Processing (PAY-001 to PAY-020)
+
+PAY-001: Create payment with valid card details
+- Accepts card number, exp_date, cvv, amount, currency
+- Returns payment ID and status: pending
+- Validates card number (Luhn algorithm)
+- Validates expiration date not in past
+
+PAY-002: Process payment successfully
+- Status changes from pending → processing → completed
+- Webhook notification sent
+- Receipt generated and emailed
+- Payment recorded in ledger
+
+PAY-003: Declined card returns proper error
+- Returns 402 Payment Required
+- Error message: "Card declined"
+- No charge made
+- Reason code included (insufficient_funds, etc.)
+
+PAY-004: Expired card rejected
+- Validates expiration date
+- Returns 400 with clear message
+- No payment attempt made
+
+PAY-005: Invalid CVV rejected
+- CVV must be 3-4 digits
+- Returns 400 Bad Request
+- Security audit logged
+
+PAY-006: Amount validation
+- Minimum: $0.50 (or currency equivalent)
+- Maximum: $999,999.99
+- Two decimal places only
+- Returns 400 for invalid amounts
+
+PAY-007: Currency support
+- Supports: USD, EUR, GBP, JPY, etc.
+- ISO 4217 currency codes
+- Proper decimal handling per currency
+- Returns 400 for unsupported currency
+
+PAY-008: Idempotency keys prevent duplicate charges
+- Same idempotency key returns same result
+- Duplicate requests within 24 hours detected
+- Returns 200 with original payment
+
+PAY-009: 3D Secure authentication flow
+- Redirects to bank for authentication
+- Handles authentication success/failure
+- Completes payment after successful auth
+- Times out after 10 minutes
+
+PAY-010: Payment method tokenization
+- Can save card as token for future use
+- Token is PCI-compliant
+- Original card details not stored
+- Token can be used for subsequent payments
+
+PAY-011: Payment with saved token
+- Uses stored payment method
+- Skips card detail validation
+- CVV still required for CVC check
+- Returns 404 if token not found
+
+PAY-012: Multiple payment methods per customer
+- Can store multiple cards/payment methods
+- Each has unique ID
+- Can set default payment method
+- Can delete payment methods
+
+PAY-013: Payment description and metadata
+- Custom description for statement
+- Metadata key-value pairs stored
+- Retrievable with payment details
+- Max 50 metadata keys, 500 chars per value
+
+PAY-014: Customer information attached to payment
+- Email, name, address optional
+- Used for receipt and fraud detection
+- Billing address separate from shipping
+- Phone number for verification
+
+PAY-015: Payment intent creation
+- Two-step process: create intent, confirm payment
+- Allows validation before charging
+- Intent expires after 24 hours
+- Can be cancelled before confirmation
+
+PAY-016: Automatic payment retry on soft decline
+- Soft declines retried automatically
+- Max 3 retry attempts over 7 days
+- Customer notified of retry schedule
+- Hard declines not retried
+
+PAY-017: Payment holds/authorizations
+- Authorize amount without capturing
+- Hold valid for 7 days
+- Can capture partial or full amount
+- Uncaptured amounts released automatically
+
+PAY-018: Capture authorized payment
+- Must be within 7 days
+- Can capture less than authorized (tip scenarios)
+- Returns 400 if already captured
+- Returns 410 if authorization expired
+
+PAY-019: Void/cancel payment before capture
+- Cancels authorization hold
+- No charge to customer
+- Returns 200 if successful
+- Returns 400 if already captured
+
+PAY-020: Payment timeout handling
+- Payments timeout after 15 minutes
+- Status changes to failed
+- Customer notified
+- Funds not captured
+
+## Refunds (PAY-021 to PAY-030)
+
+PAY-021: Full refund of completed payment
+- Refunds entire amount
+- Returns refund ID
+- Status: pending → completed
+- Customer notified via email
+
+PAY-022: Partial refund
+- Can refund less than original amount
+- Multiple partial refunds allowed
+- Total refunds cannot exceed payment amount
+- Each refund tracked separately
+
+PAY-023: Refund to original payment method
+- Funds returned to original card
+- Takes 5-10 business days
+- Status updates tracked
+- Webhook notifications sent
+
+PAY-024: Refund validation
+- Cannot refund more than remaining balance
+- Cannot refund unsuccessful payment
+- Cannot refund after 180 days (policy dependent)
+- Returns 400 with clear error
+
+PAY-025: Refund with reason
+- Reason codes: duplicate, fraudulent, requested_by_customer
+- Reason stored with refund
+- Used for analytics and dispute management
+- Optional notes field
+
+PAY-026: Instant refunds
+- For eligible transactions
+- Funds available immediately
+- Higher fee
+- Not available for all cards
+
+PAY-027: Dispute management
+- Customer can dispute payment
+- Status changes to disputed
+- Evidence can be uploaded
+- Automatic hold on funds
+
+PAY-028: Refund fees
+- Standard refunds: no fee
+- Instant refunds: $0.25 fee
+- Returned to merchant account
+- Proper accounting
+
+PAY-029: Refund idempotency
+- Same refund request returns same result
+- Prevents duplicate refunds
+- Idempotency key required
+
+PAY-030: Refund webhooks
+- refund.created, refund.updated, refund.completed events
+- Includes full refund details
+- Retry on failure (exponential backoff)
+- Webhook signature verification
+
+## Subscriptions & Recurring Payments (PAY-031 to PAY-045)
+
+PAY-031: Create subscription plan
+- Define interval: day, week, month, year
+- Set amount and currency
+- Optional trial period
+- Product/service description
+
+PAY-032: Subscribe customer to plan
+- Uses saved payment method
+- First payment processed immediately (or after trial)
+- Subscription ID returned
+- Status: active, trialing, past_due, cancelled
+
+PAY-033: Trial period handling
+- No charge during trial
+- Email reminder 3 days before trial ends
+- Automatic billing at trial end
+- Can cancel during trial without charge
+
+PAY-034: Recurring billing execution
+- Automatic billing on interval
+- Smart retry on payment failure
+- Invoice generated each cycle
+- Receipt emailed to customer
+
+PAY-035: Failed subscription payment handling
+- Status changes to past_due
+- Retry schedule: Day 1, 3, 5, 7
+- Customer notified each attempt
+- Cancel after 4 failed attempts
+
+PAY-036: Update subscription
+- Can change plan mid-cycle
+- Proration calculated automatically
+- Immediate or next-cycle billing
+- Credit/charge issued as appropriate
+
+PAY-037: Cancel subscription
+- Immediate cancellation or at period end
+- No refund for current period (unless specified)
+- Status changes to cancelled
+- Access continues until period end (at_period_end)
+
+PAY-038: Pause subscription
+- Temporarily halt billing
+- Resume later without re-subscription
+- Payment method still valid
+- Max pause duration configurable
+
+PAY-039: Subscription discounts/coupons
+- Percentage or fixed amount off
+- Duration: once, forever, repeating
+- Applies to specific plans
+- Validates before applying
+
+PAY-040: Usage-based billing
+- Meter usage (API calls, storage, etc.)
+- Bill based on actual usage
+- Tiered pricing support
+- Usage reported throughout period
+
+PAY-041: Prorated charges
+- When upgrading/downgrading mid-cycle
+- Calculate unused time on old plan
+- Apply credit to new plan
+- Transparent to customer
+
+PAY-042: Subscription metadata
+- Custom fields per subscription
+- Internal notes and tags
+- Customer preferences
+- Integration data
+
+PAY-043: Subscription webhooks
+- Events: created, updated, cancelled, payment_failed
+- Real-time notifications
+- Retry logic on failure
+- Signature verification
+
+PAY-044: Multiple subscriptions per customer
+- Can have different plans simultaneously
+- Each billed independently
+- Consolidated invoicing option
+- Manage individually
+
+PAY-045: Subscription analytics
+- MRR (Monthly Recurring Revenue)
+- Churn rate
+- LTV (Lifetime Value)
+- Cohort analysis
+
+## Compliance & Security (PAY-046 to PAY-060)
+
+PAY-046: PCI-DSS compliance
+- Never store full card numbers
+- Use tokenization
+- Encrypt data in transit (TLS 1.2+)
+- Encrypt data at rest
+
+PAY-047: Strong Customer Authentication (SCA) for EU
+- 3D Secure 2 for card payments
+- Required for >€30 transactions
+- Exemptions handled (low-risk, recurring)
+- Falls back gracefully
+
+PAY-048: Address Verification System (AVS)
+- Checks billing address with issuer
+- Returns match/no match result
+- Used for fraud scoring
+- Optional but recommended
+
+PAY-049: CVV verification
+- Checks card security code
+- Not stored after verification
+- Required for card-not-present
+- Failure increases fraud score
+
+PAY-050: Fraud detection
+- Machine learning models score transactions
+- Rules engine (velocity checks, blacklist)
+- Manual review queue for high-risk
+- Block/allow lists by email, card BIN, IP
+
+PAY-051: 3DS exemptions
+- Low-value transactions (<€30)
+- Recurring payments after first
+- Merchant-initiated transactions
+- Low-risk (SCA engine decision)
+
+PAY-052: Geolocation validation
+- Card issuer country matches IP location
+- Mismatches flagged as suspicious
+- Configurable risk thresholds
+- Can block high-risk countries
+
+PAY-053: Velocity limits
+- Max transactions per card per hour/day
+- Max amount per customer per day
+- Prevents card testing
+- Returns 429 when exceeded
+
+PAY-054: Webhook signature verification
+- HMAC-SHA256 signature in header
+- Timestamp to prevent replay attacks
+- Verifies payload integrity
+- Returns 401 if invalid
+
+PAY-055: API key security
+- Secret keys never in frontend
+- Publishable keys for client-side
+- Key rotation support
+- Audit log of key usage
+
+PAY-056: Data retention policies
+- Card data deleted after tokenization
+- Transaction data retained 7 years (legal requirement)
+- Personal data deletion on request (GDPR)
+- Automatic purging of old logs
+
+PAY-057: Audit logging
+- All payment operations logged
+- Immutable log storage
+- Includes: who, what, when, IP, result
+- Searchable for compliance audits
+
+PAY-058: Rate limiting per merchant
+- API calls per minute/hour
+- Prevents abuse
+- Different limits per endpoint
+- Returns 429 with Retry-After
+
+PAY-059: Chargeback handling
+- Notification when chargeback filed
+- Evidence submission deadline
+- Track chargeback status
+- Deducted from account balance
+
+PAY-060: Regulatory reporting
+- Generate reports for auditors
+- PCI-DSS validation documents
+- Transaction summaries by period
+- Compliance dashboard
+
+## Integration & Webhooks (PAY-061 to PAY-070)
+
+PAY-061: Stripe integration
+- Use Stripe API for processing
+- Handle Stripe webhooks
+- Map Stripe errors to our API
+- Stripe Connect for marketplaces
+
+PAY-062: PayPal integration
+- PayPal Express Checkout
+- PayPal subscriptions
+- Instant Payment Notification (IPN)
+- PayPal disputes
+
+PAY-063: Apple Pay support
+- Payment Request API
+- Device validation
+- Token decryption
+- Seamless UX
+
+PAY-064: Google Pay support
+- Google Pay API integration
+- Merchant validation
+- Token handling
+- Android app integration
+
+PAY-065: ACH/Bank transfers
+- Verify bank account (micro-deposits)
+- Process ACH payments
+- Handle returns/failures
+- Lower fees than cards
+
+PAY-066: SEPA Direct Debit (EU)
+- SEPA mandate collection
+- Debit authorization
+- Processing timeline (2-3 days)
+- Dispute handling
+
+PAY-067: Cryptocurrency payments
+- Bitcoin, Ethereum support
+- Exchange rate at time of purchase
+- Confirmations required
+- Volatility protection
+
+PAY-068: Invoice generation
+- PDF invoices auto-generated
+- Customizable templates
+- Tax calculation
+- Multi-currency support
+
+PAY-069: Receipt delivery
+- Email receipts automatically
+- SMS receipts optional
+- Customizable branding
+- PDF attachment
+
+PAY-070: Accounting integration
+- QuickBooks sync
+- Xero integration
+- Export to CSV/Excel
+- Chart of accounts mapping

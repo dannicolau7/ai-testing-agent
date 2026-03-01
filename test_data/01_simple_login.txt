@@ -1,0 +1,44 @@
+Simple Login API
+
+Base URL: https://api.example.com
+
+ENDPOINT: POST /api/login
+
+Request Body:
+{
+  "email": "user@example.com",
+  "password": "SecurePass123!"
+}
+
+Success Response (200):
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "userId": "usr_123",
+  "email": "user@example.com"
+}
+
+Error Responses:
+
+400 Bad Request:
+{
+  "error": "Missing email or password"
+}
+
+401 Unauthorized:
+{
+  "error": "Invalid credentials"
+}
+
+Business Rules:
+- Email must be valid format
+- Password minimum 8 characters
+- Return JWT token on success
+- Lock account after 5 failed attempts
+
+Test Scenarios:
+1. Valid login → 200 with token
+2. Missing email → 400
+3. Missing password → 400
+4. Invalid email format → 400
+5. Wrong password → 401
+6. 5 failed attempts → account locked

@@ -1,0 +1,82 @@
+Stripe API Keys Authentication API
+Base URL: https://api.stripe.com/v1
+
+Authentication:
+All requests use Bearer token authentication
+Header: Authorization: Bearer {API_KEY}
+
+API Keys Types:
+1. Secret Key - Format: sk_test_* or sk_live_*
+   - Must be kept secret
+   - Used on server-side only
+   - Full API access
+
+2. Publishable Key - Format: pk_test_* or pk_live_*
+   - Can be public
+   - Used on client-side
+   - Limited permissions
+
+3. Restricted Key - Format: rk_test_* or rk_live_*
+   - Custom permissions
+   - Server-side only
+   - Limited to specific resources
+
+Environments:
+- Sandbox Mode: Use sk_test_* keys for testing
+- Live Mode: Use sk_live_* keys for production
+
+Example Request:
+GET /v1/balance
+Headers:
+  Authorization: Bearer sk_test_51T2BdjEvZDsb8wGDSqSFIu...
+  Stripe-Version: 2023-10-16
+
+Success Response (200):
+{
+  "object": "balance",
+  "available": [
+    {
+      "amount": 50000,
+      "currency": "usd"
+    }
+  ],
+  "pending": [
+    {
+      "amount": 10000,
+      "currency": "usd"
+    }
+  ]
+}
+
+Error Responses:
+401 Unauthorized:
+{
+  "error": {
+    "type": "invalid_request_error",
+    "message": "Invalid API Key provided"
+  }
+}
+
+403 Forbidden:
+{
+  "error": {
+    "type": "authentication_error",
+    "message": "API key expired or deleted"
+  }
+}
+
+Security Requirements:
+- Never expose secret keys in client-side code
+- Store keys in environment variables
+- Rotate keys regularly (180 days recommended)
+- Use restricted keys with minimal permissions
+- Limit keys to specific IP addresses when possible
+- Keys unused for 180+ days get limited access
+
+Business Rules:
+- Test keys start with "test"
+- Live keys start with "live"
+- Secret keys have full access by default
+- Publishable keys have client-side only access
+- Restricted keys need explicit permissions
+- Organization keys require Stripe-Context header

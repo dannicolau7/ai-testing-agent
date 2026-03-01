@@ -1,0 +1,342 @@
+# E-Commerce Authentication System Requirements
+# Test ID Prefix: AUTH
+
+## User Registration (AUTH-001 to AUTH-010)
+
+AUTH-001: User can register with valid email, password, and personal details
+- Email must be valid format
+- Password must be 8+ characters with uppercase, lowercase, number, and special character
+- Name, phone number required
+- Should send email verification link
+- Should not activate account until email verified
+
+AUTH-002: System rejects registration with invalid email formats
+- Test: user@, @domain.com, user@domain, etc.
+- Should return 400 with clear error message
+
+AUTH-003: System rejects weak passwords
+- Test: "password", "12345678", "Password" (no number), etc.
+- Should return specific error about password requirements
+
+AUTH-004: System prevents duplicate email registration
+- Attempting to register with existing email should return 409 Conflict
+- Error message should not reveal email exists (security)
+
+AUTH-005: Email verification link expires after 24 hours
+- Clicking expired link shows error
+- User can request new verification email
+
+AUTH-006: Email verification link is single-use
+- Second click on same link shows "already verified" or invalid
+
+AUTH-007: Registration rate limiting
+- Maximum 3 registration attempts per IP per hour
+- Returns 429 Too Many Requests
+
+AUTH-008: SQL injection protection in registration
+- Test inputs: ' OR '1'='1, "; DROP TABLE users; --, etc.
+- Should be safely escaped/parameterized
+
+AUTH-009: XSS protection in registration
+- Test inputs: <script>alert('XSS')</script>, javascript:alert()
+- Should be sanitized before storage
+
+AUTH-010: Registration with optional fields
+- Address, date of birth, profile picture optional
+- System handles missing optional fields gracefully
+
+## Login (AUTH-011 to AUTH-020)
+
+AUTH-011: User can login with correct email and password
+- Returns JWT token or session ID
+- Token should be valid for 24 hours
+- Includes refresh token valid for 30 days
+
+AUTH-012: Login fails with incorrect password
+- Should return 401 Unauthorized
+- Should not reveal whether email exists
+- Generic message: "Invalid credentials"
+
+AUTH-013: Login fails with non-existent email
+- Should return 401 Unauthorized
+- Same generic message as AUTH-012
+
+AUTH-014: Account lockout after 5 failed login attempts
+- Account locked for 30 minutes
+- Email sent to user about suspicious activity
+- Returns 423 Locked status
+
+AUTH-015: Locked account can be unlocked via email
+- Unlock link sent to registered email
+- Link expires after 1 hour
+- Successful unlock resets failed attempt counter
+
+AUTH-016: Login with unverified email fails
+- Returns 403 Forbidden
+- Message: "Please verify your email address"
+- Option to resend verification email
+
+AUTH-017: Session management - concurrent logins
+- User can have multiple active sessions
+- Each device gets unique session ID
+- User can view and revoke active sessions
+
+AUTH-018: Session expiration and refresh
+- Access token expires after 24 hours
+- Can use refresh token to get new access token
+- Refresh token rotation (new refresh token issued)
+
+AUTH-019: "Remember me" functionality
+- If selected, refresh token valid for 90 days
+- If not selected, refresh token valid for 7 days
+
+AUTH-020: Login rate limiting
+- Maximum 10 login attempts per IP per 15 minutes
+- Returns 429 Too Many Requests
+
+## Two-Factor Authentication (AUTH-021 to AUTH-030)
+
+AUTH-021: User can enable 2FA with TOTP (Google Authenticator)
+- Generates QR code with secret
+- User must enter code to confirm setup
+- Backup codes provided (10 one-time codes)
+
+AUTH-022: User can enable 2FA with SMS
+- Phone number must be verified first
+- 6-digit code sent via SMS
+- Code expires after 5 minutes
+
+AUTH-023: Login with 2FA enabled requires second factor
+- After password verification, prompts for 2FA code
+- Has 3 attempts to enter correct code
+- Codes are time-based (30-second window)
+
+AUTH-024: Invalid 2FA code handling
+- Returns error after 3 failed attempts
+- Temporarily locks 2FA for 5 minutes
+- Sends alert email about failed 2FA attempts
+
+AUTH-025: Backup codes work when 2FA enabled
+- Each backup code single-use
+- User warned when only 2 backup codes remaining
+- Can regenerate backup codes (invalidates old ones)
+
+AUTH-026: 2FA recovery if device lost
+- Can disable 2FA via email verification
+- Requires answering security questions
+- Alternative: contact support with ID verification
+
+AUTH-027: 2FA code synchronization issues
+- System accepts codes from previous/next time window
+- Handles clock drift (±1 time window = ±30 seconds)
+
+AUTH-028: User can disable 2FA
+- Must enter current 2FA code to disable
+- Confirmation email sent
+- Can re-enable anytime
+
+AUTH-029: 2FA during password reset
+- If 2FA enabled, requires 2FA code during reset
+- Alternative: use backup code
+
+AUTH-030: SMS 2FA rate limiting
+- Maximum 5 SMS per hour per user
+- Prevents SMS bombing attacks
+
+## Password Reset (AUTH-031 to AUTH-040)
+
+AUTH-031: User can request password reset via email
+- Sends reset link to registered email
+- Link contains secure token
+- Works even if email not verified
+
+AUTH-032: Password reset link expires after 1 hour
+- Clicking expired link shows error
+- User can request new reset link
+
+AUTH-033: Password reset link is single-use
+- After successful reset, link becomes invalid
+- Subsequent clicks show "link already used"
+
+AUTH-034: Password reset requires strong new password
+- Same validation as registration
+- Cannot reuse last 5 passwords
+
+AUTH-035: Password reset invalidates all existing sessions
+- All devices logged out immediately
+- Requires fresh login with new password
+
+AUTH-036: Password reset rate limiting
+- Maximum 3 reset requests per email per hour
+- Prevents email bombing
+
+AUTH-037: Password reset without email (security questions)
+- User answers 3 security questions set during registration
+- Must get all 3 correct
+- Limited to 5 attempts per day
+
+AUTH-038: Admin-initiated password reset
+- Admin can force password reset for user
+- User must set new password on next login
+- Notification email sent to user
+
+AUTH-039: Password reset notification
+- Email sent to user whenever password changed
+- Includes timestamp and IP address
+- Link to lock account if not authorized
+
+AUTH-040: Password reset with 2FA enabled
+- Requires 2FA code or backup code
+- Alternative: disable 2FA first via email
+
+## Session Management (AUTH-041 to AUTH-050)
+
+AUTH-041: User can view all active sessions
+- Shows device type, browser, location, IP, last active time
+- Can identify each session by name/description
+
+AUTH-042: User can revoke individual sessions
+- Can logout from specific devices remotely
+- Current session cannot be revoked (must use logout)
+
+AUTH-043: User can revoke all other sessions
+- "Logout from all other devices" feature
+- Keeps current session active
+- Confirmation required
+
+AUTH-044: Inactive session timeout
+- Sessions inactive for 30 days automatically expire
+- User receives email notification before expiration
+
+AUTH-045: Suspicious login detection
+- Login from new location/device triggers email alert
+- Option to "Not you? Secure your account"
+- Shows login details (IP, location, device)
+
+AUTH-046: IP address change during session
+- Session remains valid but logged
+- Excessive IP changes (>5 per hour) trigger security review
+
+AUTH-047: User agent change during session
+- If user agent changes, session invalidated
+- Prevents session hijacking
+
+AUTH-048: Session fixation protection
+- New session ID generated after login
+- Old session ID cannot be reused
+
+AUTH-049: CSRF protection on session operations
+- All session operations require CSRF token
+- Token must match session
+
+AUTH-050: Logout functionality
+- Properly destroys session server-side
+- Clears session cookie
+- Redirects to login page
+
+## Account Security (AUTH-051 to AUTH-060)
+
+AUTH-051: Account lockout after suspicious activity
+- Multiple failed 2FA attempts
+- Multiple password reset requests
+- Logins from multiple countries in short time
+
+AUTH-052: Security audit log
+- User can view login history (last 90 days)
+- Shows successful/failed attempts
+- IP, location, device, timestamp
+
+AUTH-053: Email change requires verification
+- Verification email sent to NEW email
+- Confirmation email sent to OLD email
+- 24-hour waiting period before change active
+
+AUTH-054: Phone number change requires verification
+- SMS code sent to new number
+- Email notification sent
+- Immediate effect after verification
+
+AUTH-055: Password complexity requirements enforced
+- Minimum 8 characters (configurable)
+- At least 1 uppercase, 1 lowercase, 1 number, 1 special char
+- Not contain user's name or email
+- Not in common password list (top 10k)
+
+AUTH-056: Password expiration policy
+- Optional: passwords expire after 90 days
+- User prompted to change password
+- Grace period of 7 days
+
+AUTH-057: Account deletion
+- User can request account deletion
+- Requires password confirmation
+- 30-day grace period before permanent deletion
+- All data anonymized/deleted after grace period
+
+AUTH-058: Account recovery after deletion
+- Within 30-day grace period, can cancel deletion
+- Requires email verification
+- Account fully restored
+
+AUTH-059: Privacy settings management
+- User can control what data is collected
+- Can opt out of marketing emails
+- Can download all personal data (GDPR)
+
+AUTH-060: API key management for developers
+- Can generate API keys for programmatic access
+- Keys have expiration dates
+- Can revoke keys individually
+- Keys scoped to specific permissions
+
+## Edge Cases & Error Handling (AUTH-061 to AUTH-070)
+
+AUTH-061: Database connection failure during registration
+- Returns 503 Service Unavailable
+- User data not partially saved
+- Clear error message
+
+AUTH-062: Email service failure during verification
+- Registration still succeeds
+- Retry email sending in background
+- User can manually request resend
+
+AUTH-063: Race condition on simultaneous logins
+- Two login requests at exact same time
+- Both succeed with different session IDs
+- No data corruption
+
+AUTH-064: Token generation collision
+- Extremely rare but possible
+- System detects and regenerates unique token
+- User not aware of retry
+
+AUTH-065: Timezone handling for time-based operations
+- All timestamps stored in UTC
+- Token expiration calculated correctly across timezones
+- Displayed in user's local timezone
+
+AUTH-066: Emoji and unicode in names
+- System supports international characters
+- Emojis allowed in names
+- Proper UTF-8 encoding throughout
+
+AUTH-067: Very long input handling
+- Email/name/password fields have max length
+- Returns 400 with clear error
+- No buffer overflow vulnerabilities
+
+AUTH-068: Null/empty field handling
+- Required fields reject null/empty
+- Optional fields handle gracefully
+- No null pointer exceptions
+
+AUTH-069: Special characters in password
+- All special characters allowed
+- Proper escaping in database
+- Works in login
+
+AUTH-070: Concurrent session modifications
+- User changes password while multiple sessions active
+- All sessions invalidated atomically
+- No race conditions

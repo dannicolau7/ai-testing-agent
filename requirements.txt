@@ -1,0 +1,24 @@
+# AI Testing Agent - Python Dependencies
+
+# Core dependencies
+pytest>=7.4.0              # Testing framework
+anthropic>=0.18.0          # Claude AI API
+
+# Request runner (Postman replacement)
+requests>=2.31.0           # HTTP client used by RequestRunner
+rich>=13.7.0               # Beautiful terminal output (panels, syntax highlighting, tables)
+
+# Document parsing
+PyPDF2>=3.0.0             # PDF parsing
+python-docx>=1.1.0        # Word document parsing
+
+# Optional but recommended
+pytest-html>=4.1.0        # HTML test reports
+pytest-cov>=4.1.0         # Code coverage
+pytest-xdist>=3.5.0       # Parallel test execution
+allure-pytest>=2.13.0     # Allure reporting framework
+
+# Development dependencies
+black>=23.0.0             # Code formatting
+flake8>=6.0.0             # Linting
+mypy>=1.0.0               # Type checking

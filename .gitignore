@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+*.env
+.env.*
+!.env.example
+
+# AI Testing Agent runtime files
+.ai-test/
+test_output/
+test_outputs/
+
+# Test data (may contain real credentials)
+test_data/*.yaml
+test_data/*.json
+test_data/*.xlsx
+!test_data/example_test_data.yaml
+
+# Stripe / billing secrets
+test_stripe_charges.txt
+stripe_test_project/
+
+# Misc
+.DS_Store
+*.log
+*.tmp
+*.bak
+.idea/
+.vscode/
+*.swp

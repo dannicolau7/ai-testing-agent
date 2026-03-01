@@ -1,0 +1,53 @@
+# Docker Compose for Development
+# Mount source code for live reloading
+
+version: '3.8'
+
+services:
+  # AI Testing Agent - Development mode
+  ai-testing-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ai-testing-agent-dev
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AI_AGENT_LICENSE_KEY=${AI_AGENT_LICENSE_KEY:-}
+      - PYTHONDONTWRITEBYTECODE=1
+      - DEBUG=True
+    volumes:
+      # Mount entire project for development
+      - .:/app
+      # Exclude Python cache
+      - /app/__pycache__
+    command: python cli.py run example_requirements.txt
+    networks:
+      - ai-agent-dev-network
+    depends_on:
+      - license-server
+    stdin_open: true
+    tty: true
+
+  # License Server - Development mode
+  license-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.license-server
+    container_name: ai-testing-license-server-dev
+    ports:
+      - "5000:5000"
+    environment:
+      - ADMIN_API_KEY=admin-secret-key-change-in-production
+      - PORT=5000
+      - DEBUG=True
+      - LOG_LEVEL=DEBUG
+    volumes:
+      # Mount source for hot reload
+      - ./license_server.py:/app/license_server.py
+    networks:
+      - ai-agent-dev-network
+    command: python license_server.py
+
+networks:
+  ai-agent-dev-network:
+    driver: bridge

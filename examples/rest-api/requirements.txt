@@ -1,0 +1,385 @@
+# RESTful API Testing Requirements - Task Management API
+# Test ID Prefix: API
+
+## CRUD Operations - Tasks Resource (API-001 to API-015)
+
+API-001: Create new task with valid data (POST /api/tasks)
+- Required fields: title, description
+- Optional fields: priority, due_date, tags, assignee_id
+- Returns 201 Created with task object
+- Response includes id, created_at, updated_at
+
+API-002: Get all tasks with pagination (GET /api/tasks)
+- Supports query params: page, limit, sort, order
+- Default: page=1, limit=20
+- Returns tasks array, total_count, page, has_next
+
+API-003: Get single task by ID (GET /api/tasks/{id})
+- Returns 200 OK with task object
+- Returns 404 Not Found for invalid ID
+
+API-004: Update task (PUT /api/tasks/{id})
+- Updates specified fields
+- Returns 200 OK with updated task
+- Returns 404 for non-existent task
+- Updates updated_at timestamp
+
+API-005: Partial update task (PATCH /api/tasks/{id})
+- Updates only provided fields
+- Returns 200 OK
+- Validates field types
+
+API-006: Delete task (DELETE /api/tasks/{id})
+- Returns 204 No Content
+- Returns 404 for non-existent task
+- Soft delete (marks as deleted, doesn't remove)
+
+API-007: Validation errors return 400 Bad Request
+- Missing required fields
+- Invalid data types
+- Invalid field values
+- Clear error messages with field names
+
+API-008: Attempting to create task without authentication returns 401
+- All endpoints require authentication
+- Missing token returns 401 Unauthorized
+
+API-009: Creating task with invalid token returns 401
+- Expired token
+- Malformed token
+- Revoked token
+
+API-010: User can only access their own tasks
+- GET /api/tasks returns only user's tasks
+- Attempting to access another user's task returns 403 Forbidden
+
+API-011: Bulk create tasks (POST /api/tasks/bulk)
+- Accepts array of task objects
+- Returns 201 with created tasks
+- Handles partial failures (some succeed, some fail)
+- Returns detailed error report
+
+API-012: Bulk update tasks (PATCH /api/tasks/bulk)
+- Updates multiple tasks by ID
+- Returns updated tasks
+- Atomic operation (all or nothing)
+
+API-013: Bulk delete tasks (DELETE /api/tasks/bulk)
+- Accepts array of task IDs
+- Returns 204 No Content
+- Validates all IDs exist before deleting
+
+API-014: Filter tasks by status (GET /api/tasks?status=completed)
+- Supports multiple statuses: pending, in_progress, completed, archived
+- Case-insensitive
+- Returns 400 for invalid status
+
+API-015: Search tasks by title/description (GET /api/tasks/search?q=query)
+- Full-text search
+- Returns relevant tasks ordered by relevance
+- Supports pagination
+
+## Advanced Filtering & Sorting (API-016 to API-025)
+
+API-016: Filter by date range (GET /api/tasks?created_after=DATE&created_before=DATE)
+- ISO 8601 date format
+- Returns 400 for invalid dates
+- Inclusive ranges
+
+API-017: Filter by priority (GET /api/tasks?priority=high)
+- Values: low, medium, high, critical
+- Case-insensitive
+
+API-018: Filter by tags (GET /api/tasks?tags=urgent,backend)
+- Comma-separated list
+- Returns tasks with ANY of the tags
+- Support for tags=urgent&match=all for AND logic
+
+API-019: Filter by assignee (GET /api/tasks?assignee_id=123)
+- Returns tasks assigned to specific user
+- Support for unassigned=true
+
+API-020: Sort by multiple fields (GET /api/tasks?sort=priority,due_date&order=desc,asc)
+- Multiple sort fields
+- Separate order for each field
+- Default sort: created_at desc
+
+API-021: Combine multiple filters (GET /api/tasks?status=pending&priority=high&assignee_id=123)
+- All filters work together
+- AND logic between different filters
+
+API-022: Get task statistics (GET /api/tasks/stats)
+- Returns count by status
+- Count by priority
+- Overdue count
+- Completed this week/month
+
+API-023: Get overdue tasks (GET /api/tasks/overdue)
+- Tasks past due_date
+- Ordered by how overdue
+
+API-024: Get tasks due soon (GET /api/tasks/due-soon?days=7)
+- Tasks due within N days
+- Default 7 days
+
+API-025: Export tasks (GET /api/tasks/export?format=csv)
+- Supports formats: csv, json, pdf
+- Applies current filters
+- Returns file download
+
+## Relationships & Nested Resources (API-026 to API-035)
+
+API-026: Get task comments (GET /api/tasks/{id}/comments)
+- Returns all comments for task
+- Ordered by created_at
+- Includes author information
+
+API-027: Create comment on task (POST /api/tasks/{id}/comments)
+- Required: content
+- Returns 201 with comment object
+
+API-028: Update comment (PUT /api/tasks/{task_id}/comments/{comment_id})
+- Only author can update
+- Returns 403 if not author
+
+API-029: Delete comment (DELETE /api/tasks/{task_id}/comments/{comment_id})
+- Only author or task owner can delete
+- Returns 204
+
+API-030: Get task attachments (GET /api/tasks/{id}/attachments)
+- Returns array of attachment metadata
+- Includes file_name, size, type, url
+
+API-031: Upload attachment (POST /api/tasks/{id}/attachments)
+- Multipart form data
+- Max file size: 10MB
+- Allowed types: images, pdf, docs
+- Returns 413 if too large
+
+API-032: Download attachment (GET /api/tasks/{id}/attachments/{attachment_id})
+- Returns file with correct content-type
+- Supports range requests for large files
+
+API-033: Delete attachment (DELETE /api/tasks/{id}/attachments/{attachment_id})
+- Returns 204
+- Only task owner can delete
+
+API-034: Get task history/audit log (GET /api/tasks/{id}/history)
+- Returns all changes to task
+- Includes what changed, who changed it, when
+
+API-035: Assign task to user (POST /api/tasks/{id}/assign)
+- Requires assignee_id
+- Sends notification to assignee
+- Returns updated task
+
+## API Conventions & Standards (API-036 to API-045)
+
+API-036: All responses include proper Content-Type header
+- application/json for JSON responses
+- text/csv for CSV exports
+- etc.
+
+API-037: All timestamps in ISO 8601 format with timezone
+- e.g., 2024-01-15T10:30:00Z
+- Consistent across all endpoints
+
+API-038: Pagination uses consistent format
+- Links in response header (RFC 5988)
+- Or pagination object in response body
+
+API-039: Rate limiting headers included
+- X-RateLimit-Limit
+- X-RateLimit-Remaining
+- X-RateLimit-Reset
+
+API-040: CORS headers properly configured
+- Supports OPTIONS preflight
+- Correct Access-Control-* headers
+
+API-041: ETags for conditional requests
+- GET returns ETag header
+- PUT/PATCH accepts If-Match header
+- Returns 412 Precondition Failed on mismatch
+
+API-042: Compression support
+- Accepts Accept-Encoding: gzip
+- Returns Content-Encoding: gzip
+
+API-043: API versioning in URL
+- /api/v1/tasks vs /api/v2/tasks
+- Supports multiple versions simultaneously
+
+API-044: HATEOAS links in responses
+- Includes _links for related resources
+- Discoverability
+
+API-045: Request ID in response headers
+- X-Request-ID for tracing
+- Useful for debugging
+
+## Error Handling (API-046 to API-055)
+
+API-046: Consistent error response format
+- Structure: {error: {code, message, details}}
+- Same format across all endpoints
+
+API-047: Validation errors list all problems
+- Not just first error
+- Field-specific error messages
+
+API-048: 404 returns helpful error message
+- Not just "Not Found"
+- "Task with ID 123 not found"
+
+API-049: 500 errors don't leak sensitive info
+- Generic message to client
+- Detailed error logged server-side
+
+API-050: Malformed JSON returns 400 with parse error
+- Clear message about JSON syntax
+- Position of error if possible
+
+API-051: Unsupported HTTP methods return 405
+- With Allow header listing supported methods
+
+API-052: Unsupported media type returns 415
+- When Content-Type not supported
+
+API-053: Large request body returns 413
+- Payload too large
+- Specify max size in error
+
+API-054: Timeout returns 504 Gateway Timeout
+- For long-running operations
+
+API-055: Conflict returns 409
+- Concurrent modification conflicts
+- Duplicate unique values
+
+## Authentication & Authorization (API-056 to API-065)
+
+API-056: JWT token in Authorization header
+- Format: Bearer {token}
+- Case-insensitive "Bearer"
+
+API-057: Token expiration handled gracefully
+- Returns 401 with clear message
+- Includes token_expired: true flag
+
+API-058: Refresh token endpoint (POST /api/auth/refresh)
+- Accepts refresh token
+- Returns new access token
+
+API-059: Different user roles have different permissions
+- Admin can access all tasks
+- User can access only their tasks
+- Guest has read-only access
+
+API-060: Attempting admin-only action returns 403
+- Clear message about required permission
+
+API-061: API key authentication supported (alternative to JWT)
+- X-API-Key header
+- Rate limits per key
+
+API-062: OAuth2 integration
+- Authorization code flow
+- Token introspection endpoint
+
+API-063: Scope-based permissions
+- tokens have scopes: read:tasks, write:tasks, delete:tasks
+- Endpoints verify required scopes
+
+API-064: IP whitelist support for sensitive operations
+- Configurable per API key
+- Returns 403 from non-whitelisted IP
+
+API-065: Audit log for security events
+- Failed auth attempts logged
+- Suspicious patterns detected
+
+## Performance & Caching (API-066 to API-075)
+
+API-066: Response time under 200ms for simple queries
+- P95 latency monitored
+- Performance test included
+
+API-067: Caching with Cache-Control headers
+- max-age set appropriately
+- public vs private cache
+
+API-068: Conditional GET with Last-Modified
+- Returns 304 Not Modified when unchanged
+- Reduces bandwidth
+
+API-069: Field selection to reduce response size (GET /api/tasks?fields=id,title)
+- Only requested fields returned
+- Reduces payload
+
+API-070: Sparse fieldsets support
+- Include/exclude specific fields
+- Useful for mobile clients
+
+API-071: Eager loading to avoid N+1 queries (GET /api/tasks?include=comments,assignee)
+- Include related resources in single request
+- Reduces round trips
+
+API-072: Batch requests (POST /api/batch)
+- Multiple API calls in single request
+- Returns array of responses
+
+API-073: WebSocket support for real-time updates
+- Subscribe to task changes
+- Push notifications
+
+API-074: GraphQL alternative endpoint
+- /api/graphql
+- Query exactly what you need
+
+API-075: Response size limits
+- Max 5MB response
+- Pagination required for large datasets
+
+## Edge Cases & Robustness (API-076 to API-085)
+
+API-076: Unicode support in all text fields
+- Emoji in titles/descriptions
+- International characters
+
+API-077: Very long strings handled gracefully
+- Max length enforced (e.g., 1000 chars)
+- Returns 400 with clear message
+
+API-078: Special characters in URLs encoded properly
+- Spaces, slashes, etc.
+- URL encoding validated
+
+API-079: Null vs empty string vs missing field
+- Handled distinctly
+- Clear semantics
+
+API-080: Array fields accept empty arrays
+- Not treated as error
+- Clears previous values
+
+API-081: Timezone edge cases
+- Daylight saving time transitions
+- Leap seconds
+
+API-082: Concurrent requests don't cause conflicts
+- Proper database locking
+- Idempotency keys for POST requests
+
+API-083: Duplicate request detection
+- Idempotency-Key header support
+- Prevents double-processing
+
+API-084: Graceful degradation when dependencies fail
+- Database connection issues
+- External service timeouts
+
+API-085: Health check endpoint (GET /api/health)
+- Returns 200 when healthy
+- Includes dependency status
+- Used by load balancers

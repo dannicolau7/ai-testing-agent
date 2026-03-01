@@ -204,7 +204,7 @@ class DataManager:
             auth_config['login_url'] = self._prompt("Login endpoint", "/api/login")
             auth_config['credentials'] = {
                 'email': self._prompt("Test email", "test@example.com"),
-                'password': self._prompt("Test password", "TestPass123!", mask=True)
+                'password': self._prompt("Test password", "change-me", mask=True)
             }
         elif auth_type == 'apikey':
             auth_config['api_key'] = self._prompt("API Key", "your-api-key-here", mask=True)
@@ -233,7 +233,7 @@ class DataManager:
                 
                 data['users'][user_name] = {
                     'email': self._prompt(f"  Email for {user_name}", f"{user_name}@test.com"),
-                    'password': self._prompt(f"  Password for {user_name}", "TestPass123!", mask=True),
+                    'password': self._prompt(f"  Password for {user_name}", "change-me", mask=True),
                     'role': self._prompt(f"  Role for {user_name}", "user")
                 }
                 
@@ -423,7 +423,7 @@ class DataManager:
             if 'valid_user' in users or len(users) > 0:
                 first_user = list(users.values())[0]
                 replacements['test@example.com'] = first_user.get('email', 'test@example.com')
-                replacements['TestPass123!'] = first_user.get('password', 'TestPass123!')
+                replacements['change-me'] = first_user.get('password', 'change-me')
         
         # Apply replacements
         modified_code = test_code
@@ -443,7 +443,7 @@ class DataManager:
             Dict with email and password
         """
         if 'users' not in self.data:
-            return {'email': 'test@example.com', 'password': 'TestPass123!'}
+            return {'email': 'test@example.com', 'password': 'change-me'}
         
         users = self.data['users']
         
@@ -452,7 +452,7 @@ class DataManager:
             if user_type in user_id.lower() or user.get('role', '').lower() == user_type:
                 return {
                     'email': user.get('email', 'test@example.com'),
-                    'password': user.get('password', 'TestPass123!')
+                    'password': user.get('password', 'change-me')
                 }
         
         # Return first user if no match
@@ -460,11 +460,11 @@ class DataManager:
             first_user = list(users.values())[0]
             return {
                 'email': first_user.get('email', 'test@example.com'),
-                'password': first_user.get('password', 'TestPass123!')
+                'password': first_user.get('password', 'change-me')
             }
         
         # Default fallback
-        return {'email': 'test@example.com', 'password': 'TestPass123!'}
+        return {'email': 'test@example.com', 'password': 'change-me'}
     
     def generate_conftest(self, output_path: str = "conftest.py") -> str:
         """
@@ -495,7 +495,7 @@ class DataManager:
         login_url = auth.get('login_url', '/api/login')
         creds = auth.get('credentials', {})
         email = creds.get('email', 'test@example.com')
-        password = creds.get('password', 'TestPass123!')
+        password = creds.get('password', 'change-me')
         token_field = auth.get('token_field', 'token')
         api_key = auth.get('api_key', '')
         header_name = auth.get('header_name', 'X-API-Key')
@@ -626,7 +626,7 @@ def business_rules():
                 'login_url': '/api/login',
                 'credentials': {
                     'email': 'test@example.com',
-                    'password': 'TestPass123!'
+                    'password': 'change-me'
                 },
                 'token_field': 'token'
             },

@@ -285,8 +285,8 @@ class EnvManager:
             'dev',
             'http://localhost:8000',
             {
-                'TEST_EMAIL': 'dev@test.com',
-                'TEST_PASSWORD': 'DevPass123!',
+                'TEST_EMAIL': 'dev@your-domain.com',
+                'TEST_PASSWORD': 'change-me',
                 'DEBUG': 'true'
             }
         )
@@ -296,8 +296,8 @@ class EnvManager:
             'staging',
             'https://staging.api.example.com',
             {
-                'TEST_EMAIL': 'staging@test.com',
-                'TEST_PASSWORD': 'StagingPass456!',
+                'TEST_EMAIL': 'staging@your-domain.com',
+                'TEST_PASSWORD': 'change-me',
                 'DEBUG': 'false'
             }
         )
@@ -307,8 +307,8 @@ class EnvManager:
             'production',
             'https://api.example.com',
             {
-                'TEST_EMAIL': 'prod_readonly@test.com',
-                'TEST_PASSWORD': 'ProdPass789!',
+                'TEST_EMAIL': 'prod@your-domain.com',
+                'TEST_PASSWORD': 'change-me',
                 'DEBUG': 'false'
             }
         )

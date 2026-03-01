@@ -15,8 +15,8 @@
 </tr>
 <tr>
 <td><strong>$0/month</strong></td>
-<td><strong>$29/month</strong></td>
-<td><strong>$99/month</strong></td>
+<td><strong>Coming soon</strong></td>
+<td><strong>Coming soon</strong></td>
 <td><strong>Custom</strong></td>
 </tr>
 <tr>
@@ -121,7 +121,7 @@ python cli.py run requirements.txt
 
 ---
 
-## ⭐ PRO - $29/month
+## ⭐ PRO - Coming soon
 
 **Perfect for:**
 - 👨‍💻 Professional developers
@@ -180,7 +180,7 @@ Cost per feature: $400
 
 **With AI Testing Agent PRO:**
 ```
-AI Testing Agent: $29/month
+AI Testing Agent: Coming soon
 Time per feature: 15 minutes
 Cost per feature: $12.50
 
@@ -198,8 +198,8 @@ Cost per feature: $12.50
 
 ### Get PRO
 
-**Monthly:** $29/month, cancel anytime  
-**Annual:** $290/year ($24.17/month) - Save 17%
+**Monthly:** Coming soon, cancel anytime  
+**Annual:** 
 
 [🚀 Start PRO Trial (14 days free) →](https://yourdomain.com/signup?plan=pro&trial=true)
 
@@ -207,7 +207,7 @@ Cost per feature: $12.50
 
 ---
 
-## 👥 TEAM - $99/month
+## 👥 TEAM - Coming soon
 
 **Perfect for:**
 - 🎯 QA teams (3-10 people)
@@ -266,7 +266,7 @@ Monthly (2 sprints): $12,000
 
 **With AI Testing Agent TEAM:**
 ```
-AI Testing Agent: $99/month
+AI Testing Agent: Coming soon
 3 engineers' time: 80% reduction
 Time per sprint: 8 hours
 Cost per sprint: $1,200
@@ -279,8 +279,8 @@ Monthly (2 sprints): $2,400
 
 ### Get TEAM
 
-**Monthly:** $99/month (up to 10 users)  
-**Annual:** $990/year ($82.50/month) - Save 17%
+**Monthly:** Coming soon (up to 10 users)  
+**Annual:** 
 
 **Additional users:** $9/user/month
 
@@ -384,7 +384,7 @@ Total: $18,000/month
 
 | Feature | FREE | PRO | TEAM | ENTERPRISE |
 |---------|------|-----|------|------------|
-| **Pricing** | $0 | $29/mo | $99/mo | Custom |
+| **Pricing** | $0 | Coming soon | Coming soon | Custom |
 | **AI Engine** | Mock | Real Claude | Real Claude | Real Claude + Custom |
 | **Endpoints per Run** | 10 | 100 | 500 | Unlimited |
 | **Monthly Runs** | 50 | Unlimited | Unlimited | Unlimited |
@@ -462,8 +462,8 @@ A: Yes! You can upgrade or downgrade at any time. Upgrades take effect immediate
 
 **Q: What about annual billing?**  
 A: Annual plans save 17%:
-- PRO: $290/year ($24.17/month)
-- TEAM: $990/year ($82.50/month)
+- PRO: 
+- TEAM: 
 
 **Q: Are there any hidden fees?**  
 A: No! The price you see is what you pay. No setup fees, no hidden costs. You pay for your own Anthropic API usage separately.
@@ -527,7 +527,7 @@ A: FREE tier: Yes (MIT License). Paid tiers: ENTERPRISE only has on-premise opti
 
 **75% OFF PRO**
 
-Students get PRO for just **$7.25/month** (normally $29/month)
+Students get PRO for just **$7.25/month** (normally Coming soon)
 
 **Requirements:**
 - Valid .edu email address
@@ -597,7 +597,7 @@ Monthly cost: $_____ × _____ × _____ = $_____
 
 **With AI Testing Agent:**
 ```
-Plan cost: $29 or $99 /month
+Plan cost: Coming soon or Coming soon /month
 Time reduction: 80% typical
 New hours per feature: _____ × 0.2 = _____ hours
 

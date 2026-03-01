@@ -65,7 +65,7 @@ Perfect for individuals, students, and small projects.
 
 ---
 
-### ⭐ PRO - $29/month
+### ⭐ PRO - Coming soon
 
 For professional developers who need real AI power.
 
@@ -84,7 +84,7 @@ For professional developers who need real AI power.
 
 ---
 
-### 👥 TEAM - $99/month
+### 👥 TEAM - Coming soon
 
 For teams who need collaboration and scale.
 
@@ -127,7 +127,7 @@ For organizations with special requirements.
 
 | Feature | FREE | PRO | TEAM | ENTERPRISE |
 |---------|------|-----|------|------------|
-| **Price** | $0 | $29/mo | $99/mo | Custom |
+| **Price** | $0 | Coming soon | Coming soon | Custom |
 | **AI Quality** | Mock | Real Claude | Real Claude | Real Claude + Custom |
 | **Endpoints/Run** | 10 | 100 | 500 | Unlimited |
 | **Monthly Runs** | 50 | Unlimited | Unlimited | Unlimited |

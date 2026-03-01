@@ -475,7 +475,7 @@ class AITestingAgent:
                     "   • Unlimited test runs\n"
                     "   • Real Claude AI\n"
                     "   • Priority support\n"
-                    "   • Only $29/month\n"
+                    "   • Only Coming soon\n"
                 ),
                 'pro': (
                     "🚀 UPGRADE TO TEAM:\n"
@@ -483,7 +483,7 @@ class AITestingAgent:
                     "   • Team collaboration\n"
                     "   • Shared test libraries\n"
                     "   • Role-based access\n"
-                    "   • Only $99/month\n"
+                    "   • Only Coming soon\n"
                 ),
                 'team': (
                     "🚀 UPGRADE TO ENTERPRISE:\n"
@@ -707,7 +707,7 @@ Your monthly quota has been exhausted. You have two options:
    • Get UNLIMITED runs immediately
    • Never worry about limits again
    • Real Claude AI (much smarter)
-   • Only $29/month
+   • Only Coming soon
    
    Upgrade: https://yourdomain.com/pricing
 

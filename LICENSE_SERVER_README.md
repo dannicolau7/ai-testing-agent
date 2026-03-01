@@ -187,8 +187,8 @@ X-Admin-API-Key: your-admin-key
 | Tier | Monthly Runs | Endpoints | Price |
 |------|-------------|-----------|-------|
 | Free | 50 | 10 | $0 |
-| Pro | Unlimited | 100 | $29/mo |
-| Team | Unlimited | 500 | $99/mo |
+| Pro | Unlimited | 100 | Coming soon |
+| Team | Unlimited | 500 | Coming soon |
 | Enterprise | Unlimited | Unlimited | Custom |
 
 ## Security

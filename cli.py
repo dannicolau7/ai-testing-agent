@@ -99,7 +99,7 @@ def cmd_usage(args):
         print("  • UNLIMITED test runs (never run out!)")
         print("  • 10x more endpoints per run")
         print("  • Real Claude AI")
-        print("  • Only $29/month")
+        print("  • Coming soon")
         print("\n  Visit: https://yourdomain.com/pricing")
     
     print("="*70 + "\n")
@@ -234,7 +234,7 @@ def cmd_tier(args):
         print("  • Unlimited monthly runs")
         print("  • Advanced test strategies")
         print("  • Priority email support")
-        print("  • Only $29/month")
+        print("  • Coming soon")
     elif tier == 'pro':
         print("\n" + "💡 " + "="*66)
         print("Upgrade to TEAM for:")
@@ -242,7 +242,7 @@ def cmd_tier(args):
         print("  • Team collaboration features")
         print("  • Shared test libraries")
         print("  • Team management dashboard")
-        print("  • Only $99/month")
+        print("  • Coming soon")
     elif tier == 'team':
         print("\n" + "💡 " + "="*66)
         print("Upgrade to ENTERPRISE for:")

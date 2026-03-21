@@ -335,6 +335,10 @@ def cmd_run(args):
         print(f"   Files   : {len(result['files_generated'])}")
         for f in result['files_generated']:
             print(f"            {f}")
+
+        # --analyze: run the generated tests and diagnose failures
+        if getattr(args, "analyze", False) and result["files_generated"]:
+            agent.analyze_test_failures(result["files_generated"])
         return
 
     # ── Plain requirements / doc path ────────────────────────────────────────
@@ -383,6 +387,29 @@ def cmd_run(args):
             )
     else:
         print(f"\n❌ Workflow failed: {result['error']}")
+
+
+def cmd_failures(args):
+    """Run pytest on existing test files and AI-analyze any failures."""
+    if args.no_telemetry:
+        os.environ['AI_AGENT_TELEMETRY'] = 'false'
+
+    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    result = agent.analyze_test_failures(list(args.paths))
+
+    if getattr(args, 'json_output', False):
+        import json
+        print(json.dumps({
+            "exit_code": result["exit_code"],
+            "passed": result["passed"],
+            "failed": result["failed"],
+            "analyses": result["analyses"],
+        }, indent=2))
+    else:
+        # report was already printed inside analyze_test_failures
+        exit_code = result["exit_code"]
+        if exit_code not in (0, 5):
+            sys.exit(exit_code)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1078,7 +1105,29 @@ Visit https://yourdomain.com/pricing for more information.
         action='store_true',
         help='Force OpenAPI spec ingestion mode (auto-detected by default)'
     )
-    
+    run_parser.add_argument(
+        '--analyze',
+        action='store_true',
+        help='After generating tests, run them and AI-analyze any failures'
+    )
+
+    # Failures command (standalone analysis of existing test files)
+    failures_parser = subparsers.add_parser(
+        'failures',
+        help='Run pytest on existing test files and AI-analyze any failures'
+    )
+    failures_parser.add_argument(
+        'paths',
+        nargs='+',
+        help='Test files or directories to run (e.g. test_output/test_pets.py)'
+    )
+    failures_parser.add_argument(
+        '--json',
+        action='store_true',
+        dest='json_output',
+        help='Output analysis as JSON instead of human-readable text'
+    )
+
     # Report command
     report_parser = subparsers.add_parser(
         'report',
@@ -1238,6 +1287,8 @@ Visit https://yourdomain.com/pricing for more information.
         cmd_generate(args)
     elif args.command == 'run':
         cmd_run(args)
+    elif args.command == 'failures':
+        cmd_failures(args)
     elif args.command == 'report':
         cmd_report(args)
     elif args.command == 'request':

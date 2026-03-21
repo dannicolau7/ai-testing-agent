@@ -186,15 +186,20 @@ requirements.txt / openapi.yaml
 - OpenAPI 3.x / Swagger 2.x specs (YAML or JSON)
 - PDF and Word documents
 
-**AI-powered failure analysis**
-- Captures tracebacks, assertion errors, and response diffs
-- Sends failure context to Claude for root cause analysis
+**AI-powered failure analysis** — see [docs/failure-analysis.md](docs/failure-analysis.md)
+- Runs pytest, captures tracebacks and assertion errors
+- Sends each failure to Claude for root cause analysis
 - Returns structured report: severity, likely cause, recommended fix
+- Free-tier mock classifies failures by pattern (connection, auth, schema, timeout)
+- `python cli.py failures test_output/` or `run openapi.yaml --analyze`
 
 **CLI interface**
 
 ```bash
 python cli.py run requirements.txt          # generate + execute tests
+python cli.py run openapi.yaml              # spec ingestion (auto-detected)
+python cli.py run openapi.yaml --analyze    # generate, run, and analyze failures
+python cli.py failures test_output/         # analyze failures in existing test files
 python cli.py analyze requirements.txt      # analyze only, no execution
 python cli.py report requirements.txt       # generate HTML/JSON/MD report
 python cli.py usage                         # show monthly usage stats
@@ -355,7 +360,7 @@ See [ANALYTICS.md](ANALYTICS.md) for exactly what is collected.
 - [x] Environment management
 - [x] Docker support
 - [x] OpenAPI spec ingestion — YAML/JSON, $ref resolution, per-tag output (Week 2)
-- [ ] AI failure analysis with `--analyze` flag (Week 3)
+- [x] AI failure analysis — `--analyze` flag + `failures` command (Week 3)
 - [ ] Compliance tagging — HIPAA, NIST, ISO 27001 (Week 4)
 - [ ] Multi-endpoint test chaining (Month 2)
 - [ ] Playwright support for OAuth flows (Month 3)

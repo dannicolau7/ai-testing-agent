@@ -1252,6 +1252,85 @@ Generate a COMPLETE, RUNNABLE pytest file that:
 
 Return ONLY valid Python code. No markdown fences, no explanations."""
 
+    # ── Failure analysis (Week 3) ──────────────────────────────────────────────
+
+    def analyze_test_failures(
+        self,
+        paths: List[str],
+        extra_pytest_args: Optional[List[str]] = None,
+        output_format: str = "text",
+    ) -> Dict:
+        """
+        Run pytest on the given paths, parse any failures, and analyze them
+        with Claude (or the free-tier mock when no API key is set).
+
+        Args:
+            paths:             Files or directories to pass to pytest.
+            extra_pytest_args: Additional pytest flags.
+            output_format:     'text' (default) or 'json'.
+
+        Returns:
+            Dict with keys:
+                exit_code    – pytest exit code (0 = all passed)
+                passed       – number of passing tests
+                failed       – number of failing tests
+                failures     – list of FailureRecord dicts
+                analyses     – list of FailureAnalysis dicts
+                report       – formatted text report (if output_format='text')
+        """
+        from failure_analyzer import FailureAnalyzer
+
+        analyzer = FailureAnalyzer()
+
+        print(f"\n🧪 Running tests: {' '.join(paths)}")
+        raw_output, exit_code = analyzer.run_pytest(paths, extra_pytest_args)
+
+        # Count passed/failed from the summary line
+        passed = len(re.findall(r'\d+ passed', raw_output))
+        failed_count = len(re.findall(r'\d+ failed', raw_output))
+
+        # More precise counts from summary
+        m_passed = re.search(r'(\d+) passed', raw_output)
+        m_failed = re.search(r'(\d+) failed', raw_output)
+        passed = int(m_passed.group(1)) if m_passed else 0
+        failed_count = int(m_failed.group(1)) if m_failed else 0
+
+        print(f"   Passed: {passed}  Failed: {failed_count}")
+
+        failures = analyzer.parse_failures(raw_output)
+        analyses = []
+
+        if failures:
+            print(f"\n🔍 Analyzing {len(failures)} failure(s) with AI...")
+            # Only pass _call_ai if we have a real API key
+            call_ai = self._call_ai if self.api_key and ANTHROPIC_AVAILABLE else None
+            analyses = analyzer.analyze_all(failures, call_ai_fn=call_ai)
+            report = analyzer.format_report(analyses)
+            print(report)
+        else:
+            report = "All tests passed — no failures to analyze."
+            if exit_code == 0:
+                print("   ✅ All tests passed.")
+            elif exit_code == 5:
+                print("   ⚠️  No tests were collected.")
+
+        return {
+            "exit_code": exit_code,
+            "passed": passed,
+            "failed": failed_count,
+            "failures": [
+                {
+                    "test_name": f.test_name,
+                    "test_file": f.test_file,
+                    "error_type": f.error_type,
+                    "short_message": f.short_message,
+                }
+                for f in failures
+            ],
+            "analyses": analyzer.format_json(analyses),
+            "report": report,
+        }
+
     def run_autonomous(self, requirements_text: str, endpoint_count: Optional[int] = None) -> Dict:
         """
         Run the full autonomous testing workflow.
@@ -1528,7 +1607,7 @@ You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
                 
                 # Make the API call
                 message = client.messages.create(
-                    model="claude-3-haiku-20240307",  # Use available model
+                    model="claude-haiku-4-5-20251001",  # Claude Haiku 4.5
                     max_tokens=4096,
                     temperature=0.7,
                     messages=[

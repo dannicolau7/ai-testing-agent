@@ -204,6 +204,21 @@ python cli.py analyze requirements.txt      # analyze only, no execution
 python cli.py report requirements.txt       # generate HTML/JSON/MD report
 python cli.py usage                         # show monthly usage stats
 python cli.py tier                          # show current configuration
+python cli.py compliance-report test_output/ --compliance compliance.yaml  # coverage report
+```
+
+**Compliance workflow**
+
+```bash
+# Copy the example config and select your frameworks
+cp compliance.yaml.example compliance.yaml
+
+# Generate tests with compliance marks injected
+python cli.py run openapi.yaml --compliance compliance.yaml
+
+# Check which controls have test coverage
+python cli.py compliance-report test_output/ --compliance compliance.yaml
+python cli.py compliance-report test_output/ --compliance compliance.yaml --format markdown > compliance_report.md
 ```
 
 **Environment management** (like Postman, for your test configs)
@@ -212,6 +227,13 @@ python cli.py env create staging
 python cli.py env set staging BASE_URL https://api.staging.example.com
 python cli.py env use staging
 ```
+
+**Compliance tagging** — HIPAA · NIST 800-53 · ISO 27001
+- Map each endpoint to applicable regulatory controls automatically
+- Inject `@pytest.mark.nist_ia_2` / `@pytest.mark.hipaa_164_312_d` decorators
+- Generate a coverage report showing which controls have tests and which have gaps
+- `python cli.py run openapi.yaml --compliance compliance.yaml`
+- `python cli.py compliance-report test_output/ --compliance compliance.yaml`
 
 **CI/CD ready**
 - GitHub Actions workflow included
@@ -312,6 +334,8 @@ ai-testing-agent/
 ├── data_manager.py         # test data loading (YAML, JSON, Excel)
 ├── env_manager.py          # environment management (like Postman)
 ├── project_generator.py    # generates full project structure
+├── compliance.py           # HIPAA/NIST/ISO control mapping and pytest mark injection
+├── compliance.yaml.example # template compliance config — copy to compliance.yaml
 ├── analytics.py            # privacy-first usage telemetry (opt-out)
 ├── tests/
 │   ├── test_ai_routing.py
@@ -361,7 +385,7 @@ See [ANALYTICS.md](ANALYTICS.md) for exactly what is collected.
 - [x] Docker support
 - [x] OpenAPI spec ingestion — YAML/JSON, $ref resolution, per-tag output (Week 2)
 - [x] AI failure analysis — `--analyze` flag + `failures` command (Week 3)
-- [ ] Compliance tagging — HIPAA, NIST, ISO 27001 (Week 4)
+- [x] Compliance tagging — HIPAA, NIST 800-53, ISO 27001 (Week 4)
 - [ ] Multi-endpoint test chaining (Month 2)
 - [ ] Playwright support for OAuth flows (Month 3)
 - [ ] LLM endpoint validation — hallucination detection (Month 3)

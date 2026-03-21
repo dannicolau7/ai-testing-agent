@@ -1,0 +1,28 @@
+# AI Testing Agent — Compliance Configuration
+# Copy to compliance.yaml and edit to match your regulatory requirements.
+#
+# Usage:
+#   python cli.py run openapi.yaml --compliance compliance.yaml
+#   python cli.py compliance-report test_output/ --compliance compliance.yaml
+
+# ── Frameworks ──────────────────────────────────────────────────────────────
+# Declare which regulatory frameworks apply to your project.
+# Supported: HIPAA, NIST-800-53, ISO-27001
+# You can list one, two, or all three.
+frameworks:
+  - NIST-800-53
+  - HIPAA
+  # - ISO-27001   # uncomment if ISO 27001 certification is required
+
+# ── Custom Mappings (optional) ──────────────────────────────────────────────
+# Add extra control IDs to specific endpoint paths.
+# Format: path-substring: [control-id, ...]
+#
+# Example: always tag payment endpoints with both NIST and ISO controls
+# custom_mappings:
+#   /payment:
+#     - NIST-SC-8
+#     - ISO-A.14.1.2
+#   /patient:
+#     - HIPAA-164.312.e.1
+#     - HIPAA-164.312.b

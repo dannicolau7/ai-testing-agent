@@ -1086,27 +1086,39 @@ Provide actionable insights."""
     
     # ── OpenAPI spec ingestion (Week 2) ───────────────────────────────────────
 
-    def generate_from_spec(self, spec_path: str, output_dir: Optional[str] = None) -> Dict:
+    def generate_from_spec(
+        self,
+        spec_path: str,
+        output_dir: Optional[str] = None,
+        compliance_config: Optional[str] = None,
+    ) -> Dict:
         """
         Parse an OpenAPI / Swagger spec and generate a full pytest suite.
 
         Workflow:
           1. Load and parse the spec (YAML or JSON)
           2. Extract rich endpoint metadata via SpecIngestion
-          3. For each tag group, call Claude with a spec-aware prompt
-          4. Write one pytest file per tag (e.g. test_pets.py, test_users.py)
-          5. Return a summary dict
+          3. (Optional) Load compliance config and map controls to endpoints
+          4. For each tag group, call Claude with a spec-aware prompt
+          5. Tag generated tests with @pytest.mark.<control_id> decorators
+          6. Write one pytest file per tag + optional conftest.py with markers
+          7. Return a summary dict with compliance coverage data
 
         Args:
-            spec_path:  Path to openapi.yaml / swagger.json / etc.
-            output_dir: Directory to write generated test files.
-                        Defaults to self.output_dir ('test_output/').
+            spec_path:          Path to openapi.yaml / swagger.json / etc.
+            output_dir:         Directory to write generated test files.
+            compliance_config:  Path to compliance.yaml (optional).
 
         Returns:
             Dict with keys: spec_path, base_url, endpoint_count,
-                            files_generated, output_dir
+                            files_generated, output_dir,
+                            compliance_coverage (if config provided)
         """
         from spec_ingestion import SpecIngestion
+        from compliance import (
+            ComplianceConfig, ControlMapper, ComplianceTagger,
+            ComplianceReport, EndpointCoverage,
+        )
 
         out = Path(output_dir) if output_dir else self.output_dir
         out.mkdir(parents=True, exist_ok=True)
@@ -1133,14 +1145,64 @@ Provide actionable insights."""
         # Enforce tier endpoint limit
         self._check_endpoint_limit(len(endpoints))
 
+        # ── Compliance setup ──────────────────────────────────────────────────
+        comp_config = None
+        mapper = None
+        tagger = None
+        if compliance_config:
+            try:
+                comp_config = ComplianceConfig.load(compliance_config)
+                mapper = ControlMapper(comp_config)
+                tagger = ComplianceTagger()
+                print(f"   Compliance: {', '.join(comp_config.frameworks)}")
+            except Exception as exc:
+                print(f"   ⚠️  Compliance config error: {exc} — skipping compliance tagging")
+
         groups = ingestion.group_by_tag(endpoints)
         generated_files: List[str] = []
+        coverage_data: List[EndpointCoverage] = []
+        all_controls: List = []
 
         for tag, tag_endpoints in groups.items():
             print(f"\n🔧 Generating tests for tag: [{tag}] ({len(tag_endpoints)} endpoints)")
-            prompt = self._build_spec_prompt(tag, tag_endpoints, base_url, title)
+
+            # Map controls for each endpoint in this group
+            tag_controls = []
+            if mapper:
+                for ep in tag_endpoints:
+                    ep_controls = mapper.map(ep.path, ep.method, ep.tags)
+                    tag_controls.extend(ep_controls)
+                    coverage_data.append(EndpointCoverage(
+                        method=ep.method,
+                        path=ep.path,
+                        control_ids=[c.id for c in ep_controls],
+                        test_names=[f"test_{ep.operation_id or ep.path.strip('/').replace('/', '_')}_success"],
+                    ))
+                    all_controls.extend(ep_controls)
+
+            # Deduplicate controls for this tag group
+            seen_ids: set = set()
+            unique_tag_controls = []
+            for c in tag_controls:
+                if c.id not in seen_ids:
+                    seen_ids.add(c.id)
+                    unique_tag_controls.append(c)
+
+            prompt = self._build_spec_prompt(
+                tag, tag_endpoints, base_url, title,
+                controls=unique_tag_controls,
+            )
             raw_code = self._call_ai(prompt)
             pytest_code = self._extract_python_code(str(raw_code))
+
+            # Inject compliance marks into the generated code
+            if tagger and unique_tag_controls:
+                pytest_code = tagger.tag(pytest_code, unique_tag_controls)
+                n_marked = len(re.findall(r'^def test_', pytest_code, re.MULTILINE))
+                print(f"   🏷  Tagged {n_marked} test(s) with "
+                      f"{len(unique_tag_controls)} control(s): "
+                      f"{', '.join(c.id for c in unique_tag_controls[:3])}"
+                      f"{'…' if len(unique_tag_controls) > 3 else ''}")
 
             filename = f"test_{tag.lower().replace(' ', '_').replace('-', '_')}.py"
             filepath = out / filename
@@ -1150,6 +1212,35 @@ Provide actionable insights."""
 
             print(f"   ✓ Wrote {filename} ({len(pytest_code.splitlines())} lines)")
             generated_files.append(str(filepath))
+
+        # ── Write conftest.py with marker registrations ───────────────────────
+        if tagger and all_controls:
+            seen_ids = set()
+            unique_all = []
+            for c in all_controls:
+                if c.id not in seen_ids:
+                    seen_ids.add(c.id)
+                    unique_all.append(c)
+
+            conftest_path = out / "conftest.py"
+            conftest_content = tagger.conftest_markers(unique_all)
+            with open(conftest_path, "w", encoding="utf-8") as fh:
+                fh.write(conftest_content)
+            print(f"\n   ✓ Wrote conftest.py ({len(unique_all)} marker(s) registered)")
+
+        # ── Compliance report ─────────────────────────────────────────────────
+        compliance_summary = None
+        if comp_config and coverage_data:
+            reporter = ComplianceReport()
+            report_text = reporter.generate(coverage_data, comp_config)
+            print(report_text)
+            compliance_summary = reporter.generate_json(coverage_data, comp_config)
+
+            # Save markdown report
+            md_path = out / "compliance_report.md"
+            with open(md_path, "w", encoding="utf-8") as fh:
+                fh.write(reporter.generate_markdown(coverage_data, comp_config))
+            print(f"   ✓ Compliance report → {md_path}")
 
         self._save_monthly_usage(
             increment_runs=1,
@@ -1163,6 +1254,7 @@ Provide actionable insights."""
             "endpoint_count": len(endpoints),
             "files_generated": generated_files,
             "output_dir": str(out),
+            "compliance_coverage": compliance_summary,
         }
 
     def _build_spec_prompt(
@@ -1171,6 +1263,7 @@ Provide actionable insights."""
         endpoints: List[Dict],
         base_url: str,
         api_title: str,
+        controls: Optional[List] = None,
     ) -> str:
         """Build a spec-aware Claude prompt for one tag group of endpoints."""
         import json as _json
@@ -1220,12 +1313,25 @@ Provide actionable insights."""
 
         ep_json = _json.dumps(ep_data, indent=2)
 
+        # Build compliance section for the prompt (Week 4)
+        compliance_section = ""
+        if controls:
+            control_lines = "\n".join(
+                f"  - {c.id}: {c.title} ({c.framework})"
+                for c in controls
+            )
+            compliance_section = f"""
+COMPLIANCE CONTROLS THAT APPLY TO THESE ENDPOINTS:
+{control_lines}
+
+"""
+
         return f"""You are a senior Python engineer writing a pytest test suite.
 
 API: {api_title}
 Tag group: {tag}
 Base URL: {base_url or "https://api.example.com"}
-
+{compliance_section}
 Below is the endpoint specification in JSON format:
 
 {ep_json}

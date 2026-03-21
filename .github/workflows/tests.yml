@@ -39,6 +39,7 @@ jobs:
           python -c "import env_manager; print('env_manager OK')"
           python -c "import analytics; print('analytics OK')"
           python -c "import data_manager; print('data_manager OK')"
+          python -c "import compliance; print('compliance OK')"
 
       - name: Run tests
         run: |
@@ -51,4 +52,5 @@ jobs:
             test_usage_tracking.py \
             test_spec_ingestion.py \
             test_failure_analyzer.py \
+            test_compliance.py \
             -v --tb=short

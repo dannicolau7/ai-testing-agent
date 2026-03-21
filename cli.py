@@ -330,7 +330,12 @@ def cmd_run(args):
     if force_spec or _is_spec_file(input_path):
         print(f"📄 OpenAPI spec detected — using spec ingestion mode")
         output_dir = getattr(args, "output", "./test_output")
-        result = agent.generate_from_spec(input_path, output_dir=output_dir)
+        compliance_path = getattr(args, "compliance", None)
+        result = agent.generate_from_spec(
+            input_path,
+            output_dir=output_dir,
+            compliance_config=compliance_path,
+        )
         print(f"\n✅ Generated {result['endpoint_count']} endpoint(s)")
         print(f"   Files   : {len(result['files_generated'])}")
         for f in result['files_generated']:
@@ -410,6 +415,74 @@ def cmd_failures(args):
         exit_code = result["exit_code"]
         if exit_code not in (0, 5):
             sys.exit(exit_code)
+
+
+def cmd_compliance_report(args):
+    """Generate a compliance coverage report from a test output directory."""
+    if args.no_telemetry:
+        os.environ['AI_AGENT_TELEMETRY'] = 'false'
+
+    try:
+        from compliance import ComplianceConfig, ControlMapper, ComplianceReport, EndpointCoverage
+    except ImportError:
+        print("❌ compliance.py not found — run from the project root.")
+        sys.exit(1)
+
+    # Load config
+    try:
+        config = ComplianceConfig.load(args.compliance)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"❌ Could not load compliance config: {exc}")
+        sys.exit(1)
+
+    # Scan test directory for .py files and extract marked test names + paths
+    test_dir = Path(args.test_dir)
+    if not test_dir.exists():
+        print(f"❌ Directory not found: {test_dir}")
+        sys.exit(1)
+
+    mapper = ControlMapper(config)
+    coverage: list[EndpointCoverage] = []
+
+    for py_file in sorted(test_dir.glob("test_*.py")):
+        source = py_file.read_text()
+        # Extract decorated function names grouped by endpoint path heuristic
+        # (best-effort: use the filename stem as a tag proxy)
+        tag = py_file.stem.replace("test_", "")
+        # Find all test function names in the file
+        test_names = [
+            line.strip().split("def ")[1].split("(")[0]
+            for line in source.splitlines()
+            if line.strip().startswith("def test_")
+        ]
+        if not test_names:
+            continue
+        # Map controls by tag keyword
+        controls = mapper.map(f"/{tag}", "GET", tags=[tag])
+        control_ids = [c.id for c in controls]
+        cov = EndpointCoverage(
+            method="*",
+            path=f"/{tag}",
+            control_ids=control_ids,
+            test_names=test_names,
+        )
+        coverage.append(cov)
+
+    reporter = ComplianceReport()
+
+    if args.format == 'markdown':
+        report_text = reporter.generate_markdown(coverage, config)
+    elif args.format == 'json':
+        import json
+        report_text = json.dumps(reporter.generate_json(coverage, config), indent=2)
+    else:
+        report_text = reporter.generate(coverage, config)
+
+    if args.out:
+        Path(args.out).write_text(report_text)
+        print(f"✅ Compliance report written to {args.out}")
+    else:
+        print(report_text)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1110,6 +1183,38 @@ Visit https://yourdomain.com/pricing for more information.
         action='store_true',
         help='After generating tests, run them and AI-analyze any failures'
     )
+    run_parser.add_argument(
+        '--compliance',
+        metavar='COMPLIANCE_YAML',
+        help='Path to compliance.yaml — injects HIPAA/NIST/ISO marks into generated tests'
+    )
+
+    # Compliance report command
+    compliance_report_parser = subparsers.add_parser(
+        'compliance-report',
+        help='Generate a compliance coverage report from existing test output'
+    )
+    compliance_report_parser.add_argument(
+        'test_dir',
+        help='Directory containing generated test files (e.g. test_output/)'
+    )
+    compliance_report_parser.add_argument(
+        '--compliance',
+        metavar='COMPLIANCE_YAML',
+        required=True,
+        help='Path to compliance.yaml defining frameworks and custom mappings'
+    )
+    compliance_report_parser.add_argument(
+        '--format',
+        choices=['text', 'markdown', 'json'],
+        default='text',
+        help='Output format (default: text)'
+    )
+    compliance_report_parser.add_argument(
+        '--out',
+        metavar='FILE',
+        help='Write report to FILE instead of stdout'
+    )
 
     # Failures command (standalone analysis of existing test files)
     failures_parser = subparsers.add_parser(
@@ -1289,6 +1394,8 @@ Visit https://yourdomain.com/pricing for more information.
         cmd_run(args)
     elif args.command == 'failures':
         cmd_failures(args)
+    elif args.command == 'compliance-report':
+        cmd_compliance_report(args)
     elif args.command == 'report':
         cmd_report(args)
     elif args.command == 'request':

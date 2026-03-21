@@ -299,17 +299,49 @@ def cmd_generate(args):
         print(f"   📄 {file}")
 
 
+def _is_spec_file(path: str) -> bool:
+    """
+    Return True when the file looks like an OpenAPI / Swagger spec.
+
+    Detects by file extension first, then by peeking at the first few
+    hundred bytes for 'openapi:' or 'swagger:' keys.
+    """
+    p = Path(path)
+    if p.suffix.lower() in (".yaml", ".yml", ".json") and p.exists():
+        try:
+            sample = p.read_text(encoding="utf-8", errors="ignore")[:500].lower()
+            return "openapi:" in sample or "swagger:" in sample
+        except OSError:
+            pass
+    return False
+
+
 def cmd_run(args):
     """Run full autonomous testing workflow."""
     # Disable telemetry if flag is set
     if args.no_telemetry:
         os.environ['AI_AGENT_TELEMETRY'] = 'false'
-    
-    print("🚀 Running autonomous AI testing workflow...")
-    
-    requirements_text = read_requirements_file(args.requirements)
+
+    input_path = args.requirements
     agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
-    
+
+    # ── OpenAPI / Swagger spec path ──────────────────────────────────────────
+    force_spec = getattr(args, "spec", False)
+    if force_spec or _is_spec_file(input_path):
+        print(f"📄 OpenAPI spec detected — using spec ingestion mode")
+        output_dir = getattr(args, "output", "./test_output")
+        result = agent.generate_from_spec(input_path, output_dir=output_dir)
+        print(f"\n✅ Generated {result['endpoint_count']} endpoint(s)")
+        print(f"   Files   : {len(result['files_generated'])}")
+        for f in result['files_generated']:
+            print(f"            {f}")
+        return
+
+    # ── Plain requirements / doc path ────────────────────────────────────────
+    print("🚀 Running autonomous AI testing workflow...")
+
+    requirements_text = read_requirements_file(input_path)
+
     # Run autonomous workflow
     result = agent.run_autonomous(requirements_text)
     
@@ -1031,12 +1063,20 @@ Visit https://yourdomain.com/pricing for more information.
     )
     run_parser.add_argument(
         'requirements',
-        help='Path to requirements file (supports .txt, .md, .pdf, .docx)'
+        help=(
+            'Path to requirements file (.txt, .md, .pdf, .docx) '
+            'or an OpenAPI/Swagger spec (.yaml, .yml, .json)'
+        )
     )
     run_parser.add_argument(
         '--output',
         help='Directory to save generated tests (default: ./test_output)',
         default='./test_output'
+    )
+    run_parser.add_argument(
+        '--spec',
+        action='store_true',
+        help='Force OpenAPI spec ingestion mode (auto-detected by default)'
     )
     
     # Report command

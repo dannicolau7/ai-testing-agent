@@ -42,6 +42,93 @@ With a real Claude API key, the agent generates richer test cases, adds security
 
 ---
 
+## OpenAPI spec demo
+
+Feed any OpenAPI/Swagger spec directly — the agent auto-detects it:
+
+```bash
+# Auto-detected by .yaml extension and openapi: key
+python cli.py run test_specs/petstore.yaml
+```
+
+The agent parses the spec, resolves `$ref` schemas, and writes one pytest file
+per tag group:
+
+```
+📄 Loading spec: test_specs/petstore.yaml
+   Title   : Petstore API
+   Version : OpenAPI 3.x
+   Base URL: https://petstore.swagger.io/v2
+   Endpoints: 4
+
+🔧 Generating tests for tag: [pets] (4 endpoints)
+   ✓ Wrote test_pets.py (72 lines)
+
+✅ Spec ingestion complete — 1 file(s) written to test_output/
+```
+
+Generated `test_pets.py` (mock AI, free tier):
+
+```python
+"""
+Tests for pets endpoints — generated from OpenAPI spec
+API: Petstore API
+"""
+import pytest
+import requests
+
+BASE_URL = "https://petstore.swagger.io/v2"
+
+
+@pytest.fixture(scope='session')
+def api_client():
+    """Shared requests session for all tests in this module."""
+    session = requests.Session()
+    return session
+
+
+def test_listPets_success(api_client):
+    """List all pets — expects 200."""
+    url = f'{BASE_URL}/pets'
+    response = api_client.get(url, params={"limit": 20})
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data, list)
+    if data:
+        assert "id" in data[0]
+        assert "name" in data[0]
+
+
+def test_createPet_success(api_client):
+    """Create a pet — expects 201."""
+    url = f'{BASE_URL}/pets'
+    payload = {"name": "Fluffy", "tag": "cat"}
+    response = api_client.post(url, json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert "id" in data
+    assert "name" in data
+
+
+def test_createPet_missing_required_field(api_client):
+    """POST /pets with empty body — expects 4xx."""
+    url = f'{BASE_URL}/pets'
+    response = api_client.post(url, json={})
+    assert response.status_code in [400, 422]
+
+
+def test_getPet_not_found(api_client):
+    """GET /pets/{petId} with non-existent ID — expects 404."""
+    url = f'{BASE_URL}/pets/99999'
+    response = api_client.get(url)
+    assert response.status_code == 404
+```
+
+With `ANTHROPIC_API_KEY` set, Claude generates deeper tests including security
+scenarios, schema validation edge cases, and auth token flows.
+
+---
+
 ## What it does
 
 1. **Reads** requirements documents (txt, md, PDF, docx) or OpenAPI/Swagger specs
@@ -267,7 +354,7 @@ See [ANALYTICS.md](ANALYTICS.md) for exactly what is collected.
 - [x] Multi-format reports (HTML, JSON, Markdown)
 - [x] Environment management
 - [x] Docker support
-- [ ] OpenAPI spec ingestion (Week 2)
+- [x] OpenAPI spec ingestion — YAML/JSON, $ref resolution, per-tag output (Week 2)
 - [ ] AI failure analysis with `--analyze` flag (Week 3)
 - [ ] Compliance tagging — HIPAA, NIST, ISO 27001 (Week 4)
 - [ ] Multi-endpoint test chaining (Month 2)

@@ -31,6 +31,7 @@ jobs:
         run: |
           python -c "import ai_testing_agent; print('ai_testing_agent OK')"
           python -c "import cli; print('cli OK')"
+          python -c "import spec_ingestion; print('spec_ingestion OK')"
           python -c "import request_body_handler; print('request_body_handler OK')"
           python -c "import auth_handler; print('auth_handler OK')"
           python -c "import code_analyzer; print('code_analyzer OK')"
@@ -47,4 +48,5 @@ jobs:
             test_monthly_usage.py \
             test_license_system.py \
             test_usage_tracking.py \
+            test_spec_ingestion.py \
             -v --tb=short

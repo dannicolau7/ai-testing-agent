@@ -1084,6 +1084,174 @@ Provide actionable insights."""
         print(f"✅ Report saved to: {report_path}")
         return str(report_path)
     
+    # ── OpenAPI spec ingestion (Week 2) ───────────────────────────────────────
+
+    def generate_from_spec(self, spec_path: str, output_dir: Optional[str] = None) -> Dict:
+        """
+        Parse an OpenAPI / Swagger spec and generate a full pytest suite.
+
+        Workflow:
+          1. Load and parse the spec (YAML or JSON)
+          2. Extract rich endpoint metadata via SpecIngestion
+          3. For each tag group, call Claude with a spec-aware prompt
+          4. Write one pytest file per tag (e.g. test_pets.py, test_users.py)
+          5. Return a summary dict
+
+        Args:
+            spec_path:  Path to openapi.yaml / swagger.json / etc.
+            output_dir: Directory to write generated test files.
+                        Defaults to self.output_dir ('test_output/').
+
+        Returns:
+            Dict with keys: spec_path, base_url, endpoint_count,
+                            files_generated, output_dir
+        """
+        from spec_ingestion import SpecIngestion
+
+        out = Path(output_dir) if output_dir else self.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n📄 Loading spec: {spec_path}")
+        ingestion = SpecIngestion()
+
+        try:
+            spec = ingestion.load(spec_path)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"❌ Failed to load spec: {exc}")
+            raise
+
+        base_url = ingestion.get_base_url(spec)
+        version = ingestion.spec_version(spec)
+        title = spec.get("info", {}).get("title", "API")
+        endpoints = ingestion.extract_endpoints(spec)
+
+        print(f"   Title   : {title}")
+        print(f"   Version : OpenAPI {version}.x")
+        print(f"   Base URL: {base_url or '(not specified)'}")
+        print(f"   Endpoints: {len(endpoints)}")
+
+        # Enforce tier endpoint limit
+        self._check_endpoint_limit(len(endpoints))
+
+        groups = ingestion.group_by_tag(endpoints)
+        generated_files: List[str] = []
+
+        for tag, tag_endpoints in groups.items():
+            print(f"\n🔧 Generating tests for tag: [{tag}] ({len(tag_endpoints)} endpoints)")
+            prompt = self._build_spec_prompt(tag, tag_endpoints, base_url, title)
+            raw_code = self._call_ai(prompt)
+            pytest_code = self._extract_python_code(str(raw_code))
+
+            filename = f"test_{tag.lower().replace(' ', '_').replace('-', '_')}.py"
+            filepath = out / filename
+
+            with open(filepath, "w", encoding="utf-8") as fh:
+                fh.write(pytest_code)
+
+            print(f"   ✓ Wrote {filename} ({len(pytest_code.splitlines())} lines)")
+            generated_files.append(str(filepath))
+
+        self._save_monthly_usage(
+            increment_runs=1,
+            increment_endpoints=len(endpoints),
+        )
+
+        print(f"\n✅ Spec ingestion complete — {len(generated_files)} file(s) written to {out}/")
+        return {
+            "spec_path": str(spec_path),
+            "base_url": base_url,
+            "endpoint_count": len(endpoints),
+            "files_generated": generated_files,
+            "output_dir": str(out),
+        }
+
+    def _build_spec_prompt(
+        self,
+        tag: str,
+        endpoints: List[Dict],
+        base_url: str,
+        api_title: str,
+    ) -> str:
+        """Build a spec-aware Claude prompt for one tag group of endpoints."""
+        import json as _json
+
+        # Serialise endpoint data to a compact JSON block
+        ep_data = []
+        for ep in endpoints:
+            entry = {
+                "method": ep.method,
+                "path": ep.path,
+                "operation_id": ep.operation_id,
+                "summary": ep.summary,
+                "description": ep.description,
+            }
+            if ep.parameters:
+                entry["parameters"] = [
+                    {
+                        "name": p.name,
+                        "in": p.location,
+                        "required": p.required,
+                        "type": p.schema_type,
+                        **({"enum": p.enum} if p.enum else {}),
+                        **({"default": p.default} if p.default is not None else {}),
+                        **({"description": p.description} if p.description else {}),
+                    }
+                    for p in ep.parameters
+                ]
+            if ep.request_body:
+                rb = ep.request_body
+                entry["request_body"] = {
+                    "required": rb.get("required"),
+                    "content_type": rb.get("content_type"),
+                    "schema": rb.get("schema", {}),
+                }
+            if ep.responses:
+                entry["responses"] = [
+                    {
+                        "status_code": r.status_code,
+                        "description": r.description,
+                        **({"schema": r.schema} if r.schema else {}),
+                    }
+                    for r in ep.responses
+                ]
+            if ep.security:
+                entry["security"] = ep.security
+            ep_data.append(entry)
+
+        ep_json = _json.dumps(ep_data, indent=2)
+
+        return f"""You are a senior Python engineer writing a pytest test suite.
+
+API: {api_title}
+Tag group: {tag}
+Base URL: {base_url or "https://api.example.com"}
+
+Below is the endpoint specification in JSON format:
+
+{ep_json}
+
+Generate a COMPLETE, RUNNABLE pytest file that:
+
+1. Starts with a module docstring: "Tests for {tag} endpoints — generated from OpenAPI spec"
+2. Imports: pytest, requests (standard library only, no third-party test libs)
+3. Defines BASE_URL = "{base_url or 'https://api.example.com'}"
+4. Defines a session-scoped api_client fixture using requests.Session
+5. For EACH endpoint, writes test functions covering:
+   - Happy path: valid inputs → expected 2xx status code
+   - Validation: missing required fields or invalid types → 4xx
+   - Edge cases: boundary values, empty strings, very large numbers where relevant
+   - Path parameters: test with valid ID and non-existent ID (404)
+6. Each test function:
+   - Has a clear name: test_<operation_id>_<scenario>
+   - Has a one-line docstring from the operation summary/description
+   - Asserts status code
+   - For 2xx responses with a JSON schema: asserts required fields are present
+     and have the correct type
+7. Do NOT mock — generate tests that call the real API (the test runner handles mocking)
+8. Do NOT add conftest.py imports — everything goes in this one file
+
+Return ONLY valid Python code. No markdown fences, no explanations."""
+
     def run_autonomous(self, requirements_text: str, endpoint_count: Optional[int] = None) -> Dict:
         """
         Run the full autonomous testing workflow.
@@ -1469,6 +1637,211 @@ You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
         # Should never reach here, but just in case
         raise Exception("Unexpected error: Exhausted retries without raising exception")
     
+    def _mock_spec_pytest(self, prompt: str) -> str:
+        """
+        Generate realistic pytest code from the spec data embedded in the prompt.
+
+        Extracts the JSON endpoint block from the prompt and produces test
+        functions for each endpoint: one happy-path, one validation, and (where
+        applicable) one 404 test.  This gives free-tier users a clear preview of
+        what the real Claude-powered output looks like.
+        """
+        import re as _re
+
+        # ── Extract base_url and tag from the prompt header ──────────────────
+        base_url = ""
+        bm = _re.search(r'Base URL:\s*(\S+)', prompt)
+        if bm:
+            base_url = bm.group(1)
+
+        tag = "default"
+        tm = _re.search(r'Tag group:\s*(\S+)', prompt)
+        if tm:
+            tag = tm.group(1)
+
+        api_title = "API"
+        am = _re.search(r'API:\s*(.+)', prompt)
+        if am:
+            api_title = am.group(1).strip()
+
+        # ── Extract the JSON endpoint block ──────────────────────────────────
+        json_match = _re.search(r'(\[[\s\S]*?\])\s*\nGenerate', prompt)
+        endpoints_raw = []
+        if json_match:
+            try:
+                endpoints_raw = json.loads(json_match.group(1))
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        if not endpoints_raw:
+            # Fall back to a minimal placeholder
+            return (
+                '"""Mock spec tests — run with a real API key for full output."""\n'
+                "import pytest\nimport requests\n\n"
+                f'BASE_URL = "{base_url}"\n\n\n'
+                "@pytest.fixture(scope='session')\ndef api_client():\n"
+                "    return requests.Session()\n\n\n"
+                "def test_placeholder(api_client):\n"
+                '    """Placeholder test — add ANTHROPIC_API_KEY for real spec-aware tests."""\n'
+                "    assert True\n"
+            )
+
+        # ── Build the pytest file ─────────────────────────────────────────────
+        lines = [
+            f'"""',
+            f"Tests for {tag} endpoints — generated from OpenAPI spec",
+            f"API: {api_title}",
+            f"",
+            f"NOTE: This is a mock output (free tier).",
+            f"      Set ANTHROPIC_API_KEY to generate Claude-powered tests.",
+            f'"""',
+            "import pytest",
+            "import requests",
+            "",
+            f'BASE_URL = "{base_url}"',
+            "",
+            "",
+            "@pytest.fixture(scope='session')",
+            "def api_client():",
+            '    """Shared requests session for all tests in this module."""',
+            "    session = requests.Session()",
+            "    return session",
+        ]
+
+        for ep in endpoints_raw:
+            method = ep.get("method", "GET").upper()
+            path = ep.get("path", "/")
+            op_id = ep.get("operation_id") or path.strip("/").replace("/", "_").replace("{", "").replace("}", "")
+            summary = ep.get("summary") or f"{method} {path}"
+
+            # Detect path params
+            path_params = _re.findall(r'\{(\w+)\}', path)
+            has_path_param = bool(path_params)
+
+            # Happy-path test
+            lines.append("")
+            lines.append("")
+            if has_path_param:
+                param_args = ", ".join(f"{p}=1" for p in path_params)
+                url_expr = f'f\'{{BASE_URL}}{path}\'.format(**{{{", ".join(repr(p) + ": 1" for p in path_params)}}})'
+                # Build a simpler URL line
+                url_line = f'BASE_URL + "{path}"'
+                for pp in path_params:
+                    url_line = url_line.replace("{" + pp + "}", f'" + str({pp}_id) + "')
+                fixture_arg = "api_client"
+            else:
+                url_line = f'BASE_URL + "{path}"'
+                fixture_arg = "api_client"
+
+            # Choose success code
+            success_codes = [
+                r.get("status_code", "200")
+                for r in ep.get("responses", [])
+                if str(r.get("status_code", "")).startswith("2")
+            ]
+            success_code = success_codes[0] if success_codes else "200"
+
+            # Get query params
+            query_params = [
+                p for p in ep.get("parameters", [])
+                if p.get("in") == "query"
+            ]
+
+            # Get request body fields
+            rb = ep.get("request_body")
+            rb_properties = {}
+            if rb and isinstance(rb.get("schema"), dict):
+                rb_properties = rb["schema"].get("properties", {})
+            required_fields = rb["schema"].get("required", []) if rb else []
+
+            func_name = f"test_{op_id}_success"
+            lines.append(f"def {func_name}({fixture_arg}):")
+            lines.append(f'    """{summary} — expects {success_code}."""')
+
+            if method in ("GET", "DELETE"):
+                if has_path_param:
+                    lines.append(f"    url = {url_line.replace('{petId}', '1').replace('{userId}', '1')}")
+                    # simplify for mock
+                    url_simple = f'BASE_URL + "{path.format(**{p: 1 for p in path_params})}"'
+                    lines[-1] = f"    url = f'{base_url}{path.replace('{' + path_params[0] + '}', '1') if path_params else path}'"
+                else:
+                    lines.append(f"    url = f'{{BASE_URL}}{path}'")
+                if query_params:
+                    param_items = []
+                    for p in query_params[:2]:
+                        pname = p["name"]
+                        pdefault = p.get("default", 1) if pname == "limit" else ""
+                        param_items.append(f'"{pname}": {repr(pdefault)}')
+                    params_dict = "{" + ", ".join(param_items) + "}"
+                    lines.append(f"    response = api_client.{method.lower()}(url, params={params_dict})")
+                else:
+                    lines.append(f"    response = api_client.{method.lower()}(url)")
+            else:
+                if has_path_param:
+                    lines.append(f"    url = f'{base_url}{path.replace('{' + path_params[0] + '}', '1') if path_params else path}'")
+                else:
+                    lines.append(f"    url = f'{{BASE_URL}}{path}'")
+                if rb_properties:
+                    payload_items = []
+                    for fname, finfo in list(rb_properties.items())[:3]:
+                        ftype = finfo.get("type", "string")
+                        sample = finfo.get("example") or ("test_value" if ftype == "string" else 1)
+                        payload_items.append(f'"{fname}": {repr(sample)}')
+                    lines.append(f"    payload = {{{', '.join(payload_items)}}}")
+                    lines.append(f"    response = api_client.{method.lower()}(url, json=payload)")
+                else:
+                    lines.append(f"    response = api_client.{method.lower()}(url, json={{}})")
+
+            lines.append(f"    assert response.status_code == {success_code}")
+
+            # Check response schema if available
+            resp_200 = next(
+                (r for r in ep.get("responses", []) if str(r.get("status_code", "")).startswith("2")),
+                None,
+            )
+            if resp_200 and resp_200.get("schema"):
+                schema = resp_200["schema"]
+                if schema.get("type") == "array":
+                    lines.append("    data = response.json()")
+                    lines.append("    assert isinstance(data, list)")
+                    item_props = schema.get("items", {}).get("properties", {})
+                    required_item = schema.get("items", {}).get("required", [])
+                    if item_props and required_item:
+                        lines.append("    if data:  # assert structure when list is non-empty")
+                        for req_field in required_item[:2]:
+                            lines.append(f'        assert "{req_field}" in data[0]')
+                elif schema.get("properties"):
+                    lines.append("    data = response.json()")
+                    for req_field in schema.get("required", [])[:2]:
+                        lines.append(f'    assert "{req_field}" in data')
+
+            # 404 test for path-param endpoints
+            if has_path_param and method == "GET":
+                lines.append("")
+                lines.append("")
+                func_404 = f"def test_{op_id}_not_found({fixture_arg}):"
+                lines.append(func_404)
+                lines.append(f'    """GET {path} with non-existent ID — expects 404."""')
+                lines.append(f"    url = f'{base_url}{path.replace('{' + path_params[0] + '}', '99999') if path_params else path}'")
+                lines.append(f"    response = api_client.get(url)")
+                lines.append("    assert response.status_code == 404")
+
+            # Validation test for POST/PUT/PATCH with required body fields
+            if method in ("POST", "PUT", "PATCH") and required_fields:
+                lines.append("")
+                lines.append("")
+                func_val = f"def test_{op_id}_missing_required_field({fixture_arg}):"
+                lines.append(func_val)
+                lines.append(f'    """POST {path} with empty body — expects 4xx."""')
+                if has_path_param:
+                    lines.append(f"    url = f'{base_url}{path.replace('{' + path_params[0] + '}', '1') if path_params else path}'")
+                else:
+                    lines.append(f"    url = f'{{BASE_URL}}{path}'")
+                lines.append(f"    response = api_client.{method.lower()}(url, json={{}})")
+                lines.append("    assert response.status_code in [400, 422]")
+
+        return "\n".join(lines) + "\n"
+
     def _mock_ai_response(self, prompt: str):
         """
         Generate realistic mock AI responses for demonstration.
@@ -1496,7 +1869,11 @@ You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
         
         # Detect prompt type and return appropriate mock data
         prompt_lower = prompt.lower()
-        
+
+        # SPEC INGESTION — generate realistic pytest code from embedded endpoint JSON
+        if 'openapi spec' in prompt_lower and 'tag group' in prompt_lower:
+            return self._mock_spec_pytest(prompt)
+
         # REQUIREMENTS PARSING
         if 'requirements' in prompt_lower and 'extract' in prompt_lower:
             features = [

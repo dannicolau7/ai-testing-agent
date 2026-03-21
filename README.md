@@ -1,176 +1,174 @@
-# 🤖 AI Testing Agent
+# AI Testing Agent
 
-> **Autonomous test generation powered by Claude AI**  
-> Generate comprehensive test suites in minutes, not hours.
+**Autonomous pytest generation powered by Claude AI.**
+Feed it requirements or an OpenAPI spec — get a complete test suite out.
 
+[![Tests](https://github.com/dannicolau7/ai-testing-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/dannicolau7/ai-testing-agent/actions/workflows/tests.yml)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
-[![GitHub stars](https://img.shields.io/github/stars/dannicolau7/ai-testing-agent?style=social)](https://github.com/dannicolau7/ai-testing-agent)
 
 ---
 
-## ⚡ Quick Start (FREE - No API Key Required!)
+## 30-second demo
 
 ```bash
+git clone https://github.com/dannicolau7/ai-testing-agent.git
+cd ai-testing-agent
+pip install -r requirements.txt
+
+# Run with built-in mock AI (no API key needed)
+echo "POST /api/checkout — validate card, process payment, return confirmation or error" > reqs.txt
+python cli.py run reqs.txt
+```
+
+Output:
+```
+Analyzing requirements...
+Generating test cases...
+
+  ✓ test_valid_payment_returns_200
+  ✓ test_missing_card_number_returns_400
+  ✓ test_expired_card_returns_402
+  ✓ test_insufficient_funds_returns_402
+  ✓ test_invalid_cvv_returns_422
+  ✓ test_concurrent_checkout_idempotency
+
+Generated 6 test cases → test_output/test_checkout.py
+Report → test_output/test_report.html
+```
+
+With a real Claude API key, the agent generates richer test cases, adds security scenarios, and provides failure analysis.
+
+---
+
+## What it does
+
+1. **Reads** requirements documents (txt, md, PDF, docx) or OpenAPI/Swagger specs
+2. **Generates** comprehensive test cases — happy paths, error scenarios, edge cases
+3. **Writes** production-ready pytest files with fixtures, parametrize, and docstrings
+4. **Executes** the tests and captures results
+5. **Analyzes** failures using Claude AI — explains root cause and suggests fixes
+6. **Reports** in HTML, JSON, or Markdown
+
+---
+
+## How it works
+
+```
+requirements.txt / openapi.yaml
+         │
+         ▼
+  ┌─────────────────┐
+  │  Code Analyzer  │  ← parses endpoints, schemas, user stories
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │   Claude API    │  ← generates test cases + pytest code
+  │  (mock fallback)│
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │  Test Runner    │  ← executes pytest, captures results
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────┐
+  │ Failure Analyst │  ← AI explains failures, suggests fixes
+  └────────┬────────┘
+           │
+           ▼
+  HTML / JSON / Markdown report
+```
+
+---
+
+## Features
+
+**Test generation**
+- Positive, negative, and edge case tests from natural language or specs
+- Proper pytest fixtures, `conftest.py`, and `pytest.ini`
+- Parametrized tests for data-driven scenarios
+- Auth handling: Bearer, API key, OAuth2, Basic
+
+**Input formats**
+- Plain text requirements
+- Markdown user stories and acceptance criteria
+- OpenAPI 3.x / Swagger 2.x specs (YAML or JSON)
+- PDF and Word documents
+
+**AI-powered failure analysis**
+- Captures tracebacks, assertion errors, and response diffs
+- Sends failure context to Claude for root cause analysis
+- Returns structured report: severity, likely cause, recommended fix
+
+**CLI interface**
+
+```bash
+python cli.py run requirements.txt          # generate + execute tests
+python cli.py analyze requirements.txt      # analyze only, no execution
+python cli.py report requirements.txt       # generate HTML/JSON/MD report
+python cli.py usage                         # show monthly usage stats
+python cli.py tier                          # show current configuration
+```
+
+**Environment management** (like Postman, for your test configs)
+```bash
+python cli.py env create staging
+python cli.py env set staging BASE_URL https://api.staging.example.com
+python cli.py env use staging
+```
+
+**CI/CD ready**
+- GitHub Actions workflow included
+- JUnit XML output for any CI system
+- Docker support for isolated runs
+
+---
+
+## Installation
+
+**Requirements:** Python 3.8+
+
+```bash
+# Clone
+git clone https://github.com/dannicolau7/ai-testing-agent.git
+cd ai-testing-agent
+
 # Install
 pip install -r requirements.txt
 
-# Generate tests from your requirements
-python cli.py run requirements.txt
-
-# That's it! ✨
+# Configure (optional — works without for mock AI)
+cp .env.example .env
+# Add your ANTHROPIC_API_KEY to .env for full Claude AI capability
 ```
 
-**Works immediately with mock AI** - Perfect for learning, prototyping, and small projects.
-
-[📖 View Full Docs](#-documentation) | [💡 See Examples](#-examples) | [💰 Compare Plans](#-pricing)
-
 ---
 
-## 🎯 What Does It Do?
+## Usage
 
-AI Testing Agent **automates your entire testing workflow**:
-
-1. **📄 Reads** your requirements documents (txt, md, pdf, docx)
-2. **🧠 Analyzes** features, user stories, and acceptance criteria
-3. **✨ Generates** comprehensive test cases (positive, negative, edge cases)
-4. **💻 Creates** production-ready pytest code with fixtures
-5. **🧪 Executes** all tests and captures results
-6. **📊 Produces** beautiful HTML/JSON/Markdown reports
-7. **🎯 Suggests** improvements based on AI analysis
-
-**All with a single command.**
-
----
-
-## 🆓 FREE vs ⭐ PRO vs 👥 TEAM vs 🏢 ENTERPRISE
-
-### 🆓 FREE (Open Source)
-
-Perfect for individuals, students, and small projects.
-
-✅ **Full autonomous test generation**  
-✅ **Mock AI** (works offline, no API key needed)  
-✅ **Up to 10 API endpoints** per run  
-✅ **50 test runs per month**  
-✅ **HTML/JSON/Markdown reports**  
-✅ **PDF & Word document support**  
-✅ **MIT License** - modify and distribute freely  
-✅ **Community support**  
-
-**Best for:** Learning, prototyping, open-source projects
-
-[⚡ Get Started Free](#-quick-start-free---no-api-key-required)
-
----
-
-### ⭐ PRO - Coming soon
-
-For professional developers who need real AI power.
-
-✅ **Everything in FREE, plus:**  
-🚀 **Real Claude AI** (GPT-4 class intelligence)  
-🚀 **100 API endpoints** per run (10x more!)  
-🚀 **Unlimited test runs** - no monthly limit  
-🚀 **Advanced test strategies** - security, performance, integration  
-🚀 **Priority email support** - 24-hour response time  
-🚀 **Custom report templates**  
-🚀 **Usage analytics dashboard**  
-
-**Best for:** Professional developers, startups, consulting
-
-[🚀 Upgrade to PRO →](https://yourdomain.com/pricing)
-
----
-
-### 👥 TEAM - Coming soon
-
-For teams who need collaboration and scale.
-
-✅ **Everything in PRO, plus:**  
-🎯 **500 API endpoints** per run (50x more!)  
-🎯 **Team collaboration tools**  
-🎯 **Shared test libraries**  
-🎯 **Role-based access control**  
-🎯 **Team management dashboard**  
-🎯 **Slack/Discord integration**  
-🎯 **Priority support** - 12-hour response  
-
-**Best for:** QA teams, agencies, medium businesses
-
-[👥 Upgrade to TEAM →](https://yourdomain.com/pricing)
-
----
-
-### 🏢 ENTERPRISE - Custom Pricing
-
-For organizations with special requirements.
-
-✅ **Everything in TEAM, plus:**  
-💎 **Unlimited API endpoints**  
-💎 **Dedicated support team**  
-💎 **Custom integrations** (Jira, Azure DevOps, etc.)  
-💎 **On-premise deployment option**  
-💎 **SLA guarantees** (99.9% uptime)  
-💎 **Training & onboarding**  
-💎 **Custom AI model fine-tuning**  
-💎 **Advanced security features**  
-
-**Best for:** Enterprises, regulated industries, large teams
-
-[📞 Contact Sales →](https://yourdomain.com/contact)
-
----
-
-## 💰 Pricing Comparison
-
-| Feature | FREE | PRO | TEAM | ENTERPRISE |
-|---------|------|-----|------|------------|
-| **Price** | $0 | Coming soon | Coming soon | Custom |
-| **AI Quality** | Mock | Real Claude | Real Claude | Real Claude + Custom |
-| **Endpoints/Run** | 10 | 100 | 500 | Unlimited |
-| **Monthly Runs** | 50 | Unlimited | Unlimited | Unlimited |
-| **Reports** | ✅ | ✅ | ✅ | ✅ Custom |
-| **Support** | Community | Email | Priority | Dedicated |
-| **Team Features** | ❌ | ❌ | ✅ | ✅ |
-| **Custom Integration** | ❌ | ❌ | ❌ | ✅ |
-| **On-Premise** | ❌ | ❌ | ❌ | ✅ |
-
-[📊 See Full Pricing Details →](https://yourdomain.com/pricing)
-
----
-
-## 📖 Usage
-
-### Basic Usage (FREE Tier)
+### From a requirements file
 
 ```bash
-# Check your current tier
-python cli.py tier
+# Write your requirements
+cat > reqs.txt << 'EOF'
+Feature: User authentication
+- POST /auth/login accepts email + password, returns JWT
+- Invalid credentials return 401
+- Account locks after 5 failed attempts
+- GET /auth/me returns current user (requires valid JWT)
+- POST /auth/logout invalidates the token
+EOF
 
-# Check monthly usage
-python cli.py usage
-
-# Analyze requirements
-python cli.py analyze requirements.txt
-
-# Generate and run tests
-python cli.py run requirements.txt
+python cli.py run reqs.txt
 ```
 
-### PRO/TEAM Usage (with License Key)
+### From an OpenAPI spec
 
 ```bash
-# Set license key (one time)
-export AI_AGENT_LICENSE_KEY="PRO-XXXX-XXXX-XXXX"
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Run with real Claude AI
-python cli.py run requirements.txt --license-key YOUR_KEY --api-key YOUR_API_KEY
-
-# Generate reports
-python cli.py report requirements.txt --format html
+python cli.py run openapi.yaml --format spec
 ```
 
 ### Python API
@@ -178,364 +176,122 @@ python cli.py report requirements.txt --format html
 ```python
 from ai_testing_agent import AITestingAgent
 
-# Initialize (FREE - no keys needed)
-agent = AITestingAgent()
+agent = AITestingAgent()  # uses mock AI by default
 
-# Or with PRO license
-agent = AITestingAgent(
-    api_key='your-anthropic-key',
-    license_key='PRO-XXXX-XXXX-XXXX'
-)
+# Or with Claude API for full capability
+agent = AITestingAgent(api_key="sk-ant-...")
 
-# Load requirements
-with open('requirements.txt') as f:
-    requirements = f.read()
+with open("reqs.txt") as f:
+    result = agent.run_autonomous(f.read())
 
-# Run autonomous workflow
-result = agent.run_autonomous(requirements)
-
-print(f"✅ Generated {result['test_cases']} test cases")
-print(f"📊 Report: {result['report']}")
-print(f"💰 Cost: {result['usage_stats']['cost_formatted']}")
+print(f"Generated {result['test_cases']} test cases")
+print(f"Report: {result['report']}")
 ```
 
----
-
-## 💡 Examples
-
-### Example 1: E-Commerce API Testing
-
-```python
-requirements = """
-API Endpoint: POST /api/checkout
-- Accept payment details
-- Validate card number
-- Process transaction
-- Return confirmation or error
-- Handle edge cases (expired card, insufficient funds)
-"""
-
-agent = AITestingAgent()
-result = agent.run_autonomous(requirements)
-
-# Generates:
-# ✅ test_valid_payment.py
-# ✅ test_invalid_card.py
-# ✅ test_expired_card.py
-# ✅ test_insufficient_funds.py
-# ✅ test_edge_cases.py
-```
-
-### Example 2: User Authentication
-
-```python
-requirements = """
-Feature: User Login
-- Email and password authentication
-- Password must be 8+ characters
-- Lock account after 5 failed attempts
-- Send password reset email
-"""
-
-agent = AITestingAgent()
-test_cases = agent.generate_test_cases()
-
-# AI generates:
-# • Valid login test
-# • Invalid credentials test
-# • Account lockout test
-# • Password strength test
-# • Email validation test
-```
-
-### Example 3: From Requirements to Tests in 30 Seconds
+### Failure analysis
 
 ```bash
-# 1. Write requirements (or use existing doc)
-$ echo "Feature: Shopping cart - add, update, remove items" > req.txt
+# Run tests — if any fail, analyze them
+python cli.py run reqs.txt --analyze
+```
 
-# 2. Generate tests
-$ python cli.py run req.txt
-
-# 3. View results
-$ open test_output/test_report.html
-
-# Done! 🎉
+Example analysis output:
+```
+FAILURE ANALYSIS: test_login_invalid_credentials
+Severity: Medium
+Likely cause: API returns 200 with {"error": "invalid"} instead of 401.
+              The test asserts status_code == 401 but received 200.
+Recommended fix: Update assertion to check response body, or confirm with
+                 API team that 401 is the intended contract for bad credentials.
 ```
 
 ---
 
-## 🎁 Why Open Source?
+## Project structure
 
-### Transparency 🔍
-See exactly how your tests are generated. No black boxes.
-
-### Trust 🤝
-Audit the code. Verify security. Know what you're running.
-
-### Community 🌍
-Benefit from community contributions. Share improvements.
-
-### Freedom 🚀
-Fork it. Modify it. Build on it. It's yours.
-
-### Fair Pricing 💰
-Free tier is genuinely useful. Paid tiers offer real value, not paywalled basics.
-
----
-
-## 🚀 Key Features
-
-### 🧠 Intelligent Test Generation
-- **Positive & Negative Tests** - Happy paths and error scenarios
-- **Edge Case Detection** - Boundary values, null inputs, race conditions
-- **Security Testing** - SQL injection, XSS, CSRF checks
-- **Performance Tests** - Load testing, stress testing suggestions
-
-### 💻 Production-Ready Code
-- **Pytest Framework** - Industry-standard testing
-- **Proper Fixtures** - Setup/teardown, dependency injection
-- **Parametrization** - Data-driven testing
-- **Documentation** - Clear docstrings and comments
-
-### 📊 Beautiful Reports
-- **Interactive HTML** - Charts, metrics, drill-down details
-- **JSON Export** - CI/CD integration, programmatic analysis
-- **Markdown** - Documentation, GitHub integration
-- **Cost Tracking** - Monitor AI API usage (PRO+)
-
-### 🔧 Flexible Integration
-- **CLI Tools** - Simple commands for any workflow
-- **Python API** - Full programmatic control
-- **CI/CD Ready** - GitHub Actions, GitLab CI, Jenkins
-- **Multiple Formats** - txt, md, pdf, docx requirements
+```
+ai-testing-agent/
+├── ai_testing_agent.py     # core orchestration engine
+├── cli.py                  # command-line interface
+├── code_analyzer.py        # parses endpoints from specs and code
+├── request_runner.py       # sends HTTP requests, saves as tests
+├── request_body_handler.py # generates test code for request body types
+├── auth_handler.py         # authentication fixture generation
+├── data_manager.py         # test data loading (YAML, JSON, Excel)
+├── env_manager.py          # environment management (like Postman)
+├── project_generator.py    # generates full project structure
+├── analytics.py            # privacy-first usage telemetry (opt-out)
+├── tests/
+│   ├── test_ai_routing.py
+│   ├── test_analytics.py
+│   ├── test_endpoint_limits.py
+│   └── ...
+├── .github/workflows/
+│   ├── tests.yml           # runs on every push
+│   └── publish.yml         # publishes to PyPI on release
+└── docs/                   # documentation
+```
 
 ---
 
-## 📚 Documentation
+## Configuration
 
-- [📖 Getting Started Guide](docs/getting-started.md)
-- [🔧 Installation & Setup](docs/installation.md)
-- [💡 Usage Examples](docs/examples.md)
-- [🎯 Best Practices](docs/best-practices.md)
-- [🔌 API Reference](docs/api-reference.md)
-- [❓ FAQ](docs/faq.md)
-- [🚀 Upgrade Guide](docs/upgrade-guide.md)
+Copy `.env.example` to `.env` and set:
 
----
+| Variable | Required | Description |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | No | Claude API key. Without it, mock AI is used. |
+| `AI_AGENT_LICENSE_KEY` | No | For extended limits (coming soon). |
+| `AI_TESTING_NO_ANALYTICS` | No | Set to `1` to disable telemetry. |
 
-## 🤝 Contributing
-
-We ❤️ contributions! The FREE tier is and always will be open source.
-
-### How to Contribute
-
-1. ⭐ **Star this repo** - Show your support!
-2. 🐛 **Report bugs** - Help us improve
-3. 💡 **Suggest features** - Tell us what you need
-4. 🔀 **Submit PRs** - Code contributions welcome
-5. 📝 **Improve docs** - Help others learn
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+The tool works out of the box with no keys. Mock AI produces realistic test structures useful for learning, prototyping, and CI pipelines that don't need real API access.
 
 ---
 
-## 📊 Usage Stats
+## Telemetry
+
+Anonymous usage statistics are collected by default (no code, no test content, no PII). To opt out:
 
 ```bash
-# View your current usage
-python cli.py usage
-
-# Output:
-# 📊 Monthly Usage Statistics
-# Current Month: 2026-02
-# Tier: FREE
-# 
-# 🔄 Test Runs:
-#    Used:      15 / 50
-#    Usage:     30.0%
-#    Status:    ✅ OK
-# 
-# 🔌 Endpoints:
-#    This Month: 87
-#    Per Run:    10
-# 
-# 📅 Quota Reset:
-#    Days:       11 days
-#    Date:       March 1, 2026
+export AI_TESTING_NO_ANALYTICS=1
 ```
 
----
-
-## 🎓 Learn More
-
-### Video Tutorials
-- [📹 Getting Started (5 min)](https://youtube.com/watch?v=xxx)
-- [📹 Advanced Features (15 min)](https://youtube.com/watch?v=xxx)
-- [📹 CI/CD Integration (10 min)](https://youtube.com/watch?v=xxx)
-
-### Blog Posts
-- [🔥 10x Your Testing Speed with AI](https://blog.yourdomain.com/10x-testing)
-- [⚡ From Requirements to Tests in 60 Seconds](https://blog.yourdomain.com/60-seconds)
-- [🎯 Best Practices for AI-Generated Tests](https://blog.yourdomain.com/best-practices)
-
-### Case Studies
-- [📈 How Startup X Reduced QA Time by 70%](https://yourdomain.com/case-study-x)
-- [🚀 Enterprise Y Scales Testing Across 50 Teams](https://yourdomain.com/case-study-y)
+See [ANALYTICS.md](ANALYTICS.md) for exactly what is collected.
 
 ---
 
-## 🌟 Support the Project
+## Roadmap
 
-### Free Ways to Help
-- ⭐ **Star this repository** on GitHub
-- 🐦 **Tweet about it** - Share with your network
-- 📝 **Write a blog post** - Share your experience
-- 💬 **Join discussions** - Help others in the community
-- 🐛 **Report bugs** - Help us improve quality
-
-### Upgrade to Support Development
-By upgrading to a paid tier, you directly support continued development:
-- ✨ New features and improvements
-- 🐛 Bug fixes and stability
-- 📚 Better documentation
-- 🤝 Community support
-
-[🚀 Upgrade Now →](https://yourdomain.com/pricing)
+- [x] Core autonomous test generation
+- [x] Mock AI (no API key needed)
+- [x] Multi-format reports (HTML, JSON, Markdown)
+- [x] Environment management
+- [x] Docker support
+- [ ] OpenAPI spec ingestion (Week 2)
+- [ ] AI failure analysis with `--analyze` flag (Week 3)
+- [ ] Compliance tagging — HIPAA, NIST, ISO 27001 (Week 4)
+- [ ] Multi-endpoint test chaining (Month 2)
+- [ ] Playwright support for OAuth flows (Month 3)
+- [ ] LLM endpoint validation — hallucination detection (Month 3)
 
 ---
 
-## 📞 Get Help
+## Contributing
 
-### FREE Tier Support
-- 📖 [Documentation](https://docs.yourdomain.com)
-- 💬 [Community Forum](https://community.yourdomain.com)
-- 🐛 [GitHub Issues](https://github.com/dannicolau7/ai-testing-agent/issues)
-- 💡 [Stack Overflow](https://stackoverflow.com/questions/tagged/ai-testing-agent) (tag: ai-testing-agent)
+Pull requests are welcome. For significant changes, open an issue first to discuss approach.
 
-### PRO/TEAM Support
-- 📧 **Priority Email** - support@yourdomain.com (24h response)
-- 💬 **Private Slack Channel** - Direct access to team
-- 📞 **Video Calls** - Scheduled support sessions
+```bash
+# Run tests
+python -m pytest test_ai_routing.py test_analytics.py test_endpoint_limits.py -v
 
-### ENTERPRISE Support
-- 🆘 **Dedicated Support Team**
-- ☎️ **Phone Support** - Direct line
-- 🎯 **Custom SLA** - Guaranteed response times
-- 🎓 **Training & Onboarding** - Personalized sessions
+# Lint
+flake8 --select=E9,F63,F7,F82 .
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 ---
 
-## 📝 License
+## License
 
-**MIT License** - See [LICENSE](LICENSE) file for details.
-
-### What This Means:
-✅ **Free to use** - Personal and commercial  
-✅ **Modify** - Change it to fit your needs  
-✅ **Distribute** - Share with others  
-✅ **Private Use** - No need to open source your modifications  
-
-**Attribution:** If you use the FREE tier in a commercial product, please provide attribution (optional but appreciated).
-
-**Paid Tiers:** Require a valid license key for additional features and support.
-
----
-
-## 🗺️ Roadmap
-
-### ✅ Released (v1.0)
-- ✅ Core autonomous testing workflow
-- ✅ Multiple report formats
-- ✅ Mock AI for free tier
-- ✅ Tier-based licensing
-- ✅ CLI interface
-
-### 🚧 In Progress (v1.1)
-- 🔄 Visual test report dashboard
-- 🔄 Jira/GitHub Issues integration
-- 🔄 Docker containerization
-- 🔄 VS Code extension
-
-### 🔮 Planned (v2.0)
-- 📋 Self-healing tests
-- 📋 ML-based test prioritization
-- 📋 Visual regression testing
-- 📋 Multi-language support (Java, JavaScript)
-- 📋 Performance testing integration
-
-[👀 View Full Roadmap →](https://github.com/dannicolau7/ai-testing-agent/projects)
-
----
-
-## 🏆 Why Choose AI Testing Agent?
-
-### For Developers 👨‍💻
-- ⚡ **Save 10+ hours per week** on test writing
-- 🎯 **Better coverage** - AI catches edge cases you might miss
-- 🚀 **Ship faster** - Automated testing accelerates development
-- 💰 **Free tier** that actually works (not a trial)
-
-### For QA Teams 🧪
-- 📈 **Scale testing** without scaling headcount
-- 🎯 **Focus on complex scenarios** - Let AI handle basics
-- 📊 **Better insights** - AI analyzes patterns across tests
-- 🤝 **Team collaboration** (TEAM tier)
-
-### For Managers 📊
-- 💰 **ROI from day one** - Immediate productivity boost
-- 📉 **Reduce testing costs** by 60-80%
-- ⚡ **Faster time to market** - Accelerated QA cycles
-- 📈 **Scale efficiently** - More coverage, same team size
-
----
-
-## 💬 What Users Say
-
-> "Cut our test generation time from days to minutes. The free tier alone was worth it, but PRO is a game-changer."
-> 
-> — **Sarah Chen**, Senior Developer at TechCorp
-
-> "We tested 50+ endpoints in an afternoon. This would have taken our team a week manually."
-> 
-> — **Michael Rodriguez**, QA Lead at StartupXYZ
-
-> "The fact that it works offline with mock AI is brilliant for learning and prototyping."
-> 
-> — **Emma Thompson**, Computer Science Student
-
-[📖 Read More Reviews →](https://yourdomain.com/reviews)
-
----
-
-## 🔥 Quick Links
-
-- [⚡ Get Started Free](#-quick-start-free---no-api-key-required)
-- [💰 View Pricing](https://yourdomain.com/pricing)
-- [📖 Read Documentation](https://docs.yourdomain.com)
-- [🚀 Upgrade to PRO](https://yourdomain.com/upgrade)
-- [👥 Join Community](https://community.yourdomain.com)
-- [📧 Contact Support](mailto:support@yourdomain.com)
-- [🐛 Report Bug](https://github.com/dannicolau7/ai-testing-agent/issues)
-
----
-
-## 🙏 Acknowledgments
-
-Built with these amazing technologies:
-- [Claude AI](https://anthropic.com/claude) - The smartest AI assistant
-- [Python](https://python.org) - The best language for automation
-- [Pytest](https://pytest.org) - Modern testing framework
-- [Flask](https://flask.palletsprojects.com) - Lightweight web framework
-
-Special thanks to our contributors and the open-source community! 🎉
-
----
-
-<div align="center">
-
-**Made with ❤️ and 🤖 by the AI Testing Agent Team**
-
-[⭐ Star on GitHub](https://github.com/dannicolau7/ai-testing-agent) • [🚀 Get Started](# quick-start-free---no-api-key-required) • [💬 Join Community](https://community.yourdomain.com)
-
-</div>
+MIT — see [LICENSE](LICENSE).

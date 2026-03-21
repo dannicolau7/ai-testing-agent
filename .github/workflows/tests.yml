@@ -1,37 +1,50 @@
 name: Tests
 
-on: [push, pull_request]
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12']
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Check all modules import correctly
-      run: |
-        python -c "import ai_testing_agent; print('ai_testing_agent OK')"
-        python -c "import cli; print('cli OK')"
-        python -c "import request_body_handler; print('request_body_handler OK')"
-        python -c "import auth_handler; print('auth_handler OK')"
-        python -c "import code_analyzer; print('code_analyzer OK')"
-        python -c "import env_manager; print('env_manager OK')"
+      - name: Verify module imports
+        run: |
+          python -c "import ai_testing_agent; print('ai_testing_agent OK')"
+          python -c "import cli; print('cli OK')"
+          python -c "import request_body_handler; print('request_body_handler OK')"
+          python -c "import auth_handler; print('auth_handler OK')"
+          python -c "import code_analyzer; print('code_analyzer OK')"
+          python -c "import env_manager; print('env_manager OK')"
+          python -c "import analytics; print('analytics OK')"
+          python -c "import data_manager; print('data_manager OK')"
 
-    - name: Run unit tests (if any exist)
-      run: |
-        python -m pytest test_quality_enhancer.py test_ai_routing.py -v --tb=short 2>/dev/null || echo "No passing unit tests yet"
-      continue-on-error: true
+      - name: Run tests
+        run: |
+          python -m pytest \
+            test_ai_routing.py \
+            test_analytics.py \
+            test_endpoint_limits.py \
+            test_monthly_usage.py \
+            test_license_system.py \
+            test_usage_tracking.py \
+            -v --tb=short

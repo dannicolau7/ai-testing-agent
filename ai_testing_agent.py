@@ -380,6 +380,31 @@ Generate 3-5 test cases covering positive, negative, and edge cases."""
         # Fall back: return as-is if no fence found (already plain Python)
         return raw.strip()
 
+    def _stub_pytest_from_test_case(self, test_case: dict) -> str:
+        """
+        Generate a valid pytest stub from a test case dict.
+        Used when mock AI is active and returns no 'code' key.
+        """
+        test_name = test_case.get('test_name', 'test_case')
+        test_id   = test_case.get('test_id', '')
+        description = test_case.get('description', '')
+        expected    = test_case.get('expected_result', '')
+        steps       = test_case.get('test_steps', [])
+
+        steps_comment = "\n    ".join(f"# {s}" for s in steps) if steps else "# TODO: implement steps"
+
+        return (
+            f"import pytest\n\n\n"
+            f"def {test_name}():\n"
+            f'    """\n'
+            f"    {test_id}: {description}\n"
+            f"    Expected: {expected}\n\n"
+            f"    NOTE: Mock stub — set ANTHROPIC_API_KEY for AI-generated test code.\n"
+            f'    """\n'
+            f"    {steps_comment}\n"
+            f"    pytest.skip('Mock stub — implement or set ANTHROPIC_API_KEY')\n"
+        )
+
     def generate_pytest_code(self) -> List[str]:
         """
         AI converts test cases into executable pytest code.
@@ -436,7 +461,10 @@ Return ONLY the raw Python code. Do NOT include markdown fences, explanations, o
                 pytest_code = self._call_ai(prompt)
 
                 if isinstance(pytest_code, dict):
-                    pytest_code = pytest_code.get('code', str(pytest_code))
+                    if 'code' in pytest_code:
+                        pytest_code = pytest_code['code']
+                    else:
+                        pytest_code = self._stub_pytest_from_test_case(test_case)
 
                 pytest_code = self._extract_python_code(str(pytest_code))
                 print(f"  ✓ Generated {test_case.get('test_id', i)} via AI")

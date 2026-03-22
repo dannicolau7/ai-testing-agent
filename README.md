@@ -147,6 +147,8 @@ python cli.py run test_specs/petstore.yaml
 python cli.py run requirements.txt           # generate + execute tests
 python cli.py run openapi.yaml              # spec ingestion (auto-detected)
 python cli.py run openapi.yaml --analyze    # generate, run, and analyze failures
+python cli.py chains openapi.yaml           # detect and generate chain tests
+python cli.py chains openapi.yaml --list    # print detected chains, no output file
 python cli.py failures test_output/         # analyze failures in existing test output
 python cli.py analyze requirements.txt      # analyze only, no execution
 python cli.py report requirements.txt       # generate report (HTML/JSON/MD)

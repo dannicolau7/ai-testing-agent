@@ -158,6 +158,7 @@ class AITestingAgent:
         
         return {
             **self.usage_stats,  # Include all tracked stats
+            'tier': None,        # Kept for backward compatibility
             'session_duration_seconds': duration_seconds,
             'session_duration_formatted': f"{duration_minutes}m {duration_secs}s",
             'avg_cost_per_call': avg_cost_per_call,
@@ -726,6 +727,92 @@ Provide actionable insights."""
             "files_generated": generated_files,
             "output_dir": str(out),
             "compliance_coverage": compliance_summary,
+        }
+
+    def generate_chains_from_spec(
+        self,
+        spec_path: str,
+        output_dir: Optional[str] = None,
+    ) -> Dict:
+        """
+        Detect endpoint dependencies in an OpenAPI spec and generate chain tests.
+
+        A "chain" is a sequence of API calls where each step uses values
+        captured from the previous step's response (e.g. POST /pets captures
+        id → GET /pets/{petId} uses it). No AI call is required — detection
+        is structural from the spec's response schemas.
+
+        Args:
+            spec_path:  Path to openapi.yaml / swagger.json.
+            output_dir: Directory to write test_chains.py.
+
+        Returns:
+            Dict with keys: spec_path, base_url, chains_detected,
+                            files_generated, output_dir.
+        """
+        from spec_ingestion import SpecIngestion
+        from chain_detector import ChainDetector
+        from chain_test_generator import ChainTestGenerator
+
+        out = Path(output_dir) if output_dir else self.output_dir
+        out.mkdir(parents=True, exist_ok=True)
+
+        print(f"\n📄 Loading spec for chain detection: {spec_path}")
+        ingestion = SpecIngestion()
+
+        try:
+            spec = ingestion.load(spec_path)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"❌ Failed to load spec: {exc}")
+            raise
+
+        base_url = ingestion.get_base_url(spec)
+        title = spec.get("info", {}).get("title", "API")
+        endpoints = ingestion.extract_endpoints(spec)
+
+        print(f"   Title    : {title}")
+        print(f"   Base URL : {base_url or '(not specified)'}")
+        print(f"   Endpoints: {len(endpoints)}")
+
+        detector = ChainDetector()
+        chains = detector.detect_chains(endpoints)
+
+        if not chains:
+            print("\n⚠️  No chains detected.")
+            print("   Chains require response schemas with id or token fields.")
+            print("   Ensure your spec includes $ref schemas with properties.")
+            return {
+                "spec_path": spec_path,
+                "base_url": base_url,
+                "chains_detected": 0,
+                "files_generated": [],
+                "output_dir": str(out),
+            }
+
+        print(f"\n🔗 Detected {len(chains)} chain(s):")
+        for chain in chains:
+            step_summary = " → ".join(
+                f"{s.endpoint.method} {s.endpoint.path}" for s in chain.steps
+            )
+            print(f"   [{chain.chain_type}] {step_summary}")
+
+        generator = ChainTestGenerator()
+        code = generator.generate_chain_file(
+            chains, base_url=base_url, spec_title=title
+        )
+
+        output_file = out / "test_chains.py"
+        output_file.write_text(code, encoding="utf-8")
+
+        print(f"\n✅ Chain tests written → {output_file}")
+        print(f"   Run with: pytest {output_file} -v")
+
+        return {
+            "spec_path": spec_path,
+            "base_url": base_url,
+            "chains_detected": len(chains),
+            "files_generated": [str(output_file)],
+            "output_dir": str(out),
         }
 
     def _build_spec_prompt(

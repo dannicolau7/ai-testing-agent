@@ -837,6 +837,73 @@ def handle_collection_command(args):
         _console.print(f"[red]Unknown collection action: {col_action}[/red]")
 
 
+def cmd_chains(args):
+    """Detect and generate multi-endpoint chain tests from an OpenAPI spec."""
+    if args.no_telemetry:
+        os.environ['AI_AGENT_TELEMETRY'] = 'false'
+
+    from pathlib import Path
+    from spec_ingestion import SpecIngestion
+    from chain_detector import ChainDetector
+    from chain_test_generator import ChainTestGenerator
+
+    spec_path = args.spec
+    if not Path(spec_path).exists():
+        print(f"❌ Error: File '{spec_path}' not found")
+        sys.exit(1)
+
+    ingestion = SpecIngestion()
+    try:
+        spec = ingestion.load(spec_path)
+    except Exception as exc:
+        print(f"❌ Failed to load spec: {exc}")
+        sys.exit(1)
+
+    base_url = ingestion.get_base_url(spec)
+    title = spec.get('info', {}).get('title', 'API')
+    endpoints = ingestion.extract_endpoints(spec)
+
+    print(f"\n📄 {title}")
+    print(f"   {len(endpoints)} endpoints | Base URL: {base_url or '(not specified)'}")
+
+    detector = ChainDetector()
+    chains = detector.detect_chains(endpoints)
+
+    if not chains:
+        print("\n⚠️  No chains detected.")
+        print("   Chains require response schemas with id or token fields.")
+        print("   Ensure your spec includes $ref schemas with properties.")
+        return
+
+    print(f"\n🔗 {len(chains)} chain(s) detected:\n")
+    for chain in chains:
+        print(f"  [{chain.chain_type.upper()}] {chain.name}")
+        print(f"   {chain.description}")
+        for i, step in enumerate(chain.steps, 1):
+            captures = ''
+            if step.captures:
+                captures = '  (captures: ' + ', '.join(
+                    f'{k} → {v}' for k, v in step.captures.items()
+                ) + ')'
+            print(f"     {i}. {step.endpoint.method} {step.endpoint.path}{captures}")
+        print()
+
+    if getattr(args, 'list', False):
+        return
+
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    generator = ChainTestGenerator()
+    code = generator.generate_chain_file(chains, base_url=base_url, spec_title=title)
+
+    output_file = output_dir / 'test_chains.py'
+    output_file.write_text(code, encoding='utf-8')
+
+    print(f"✅ Written → {output_file}")
+    print(f"   Run with: pytest {output_file} -v")
+
+
 def cmd_analyze_code(args):
     """
     Analyze API source code and generate pytest tests directly.
@@ -1173,6 +1240,35 @@ Examples:
 
     td_parser.set_defaults(func=cmd_test_data)
 
+    # Chains command — multi-endpoint chain test generation
+    chains_parser = subparsers.add_parser(
+        'chains',
+        help='Detect and generate multi-endpoint integration chain tests from an OpenAPI spec',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            'Analyze endpoint dependencies and generate integration tests that\n'
+            'chain multiple API calls, threading captured values between steps.\n\n'
+            'Examples:\n'
+            '  python cli.py chains openapi.yaml\n'
+            '  python cli.py chains openapi.yaml --output ./test_output\n'
+            '  python cli.py chains openapi.yaml --list\n'
+        ),
+    )
+    chains_parser.add_argument(
+        'spec',
+        help='Path to OpenAPI/Swagger spec (.yaml, .yml, .json)'
+    )
+    chains_parser.add_argument(
+        '--output',
+        help='Directory to write test_chains.py (default: ./test_output)',
+        default='./test_output'
+    )
+    chains_parser.add_argument(
+        '--list',
+        action='store_true',
+        help='Print detected chains without generating test files'
+    )
+
     # Analyze-code command (Task E: generate tests directly from API source)
     analyze_code_parser = subparsers.add_parser(
         'analyze-code',
@@ -1244,6 +1340,8 @@ Examples:
         handle_request_command(args)
     elif args.command == 'collection':
         handle_collection_command(args)
+    elif args.command == 'chains':
+        cmd_chains(args)
     elif args.command == 'analyze-code':
         cmd_analyze_code(args)
     elif args.command == 'test-data':

@@ -40,6 +40,8 @@ jobs:
           python -c "import analytics; print('analytics OK')"
           python -c "import data_manager; print('data_manager OK')"
           python -c "import compliance; print('compliance OK')"
+          python -c "import chain_detector; print('chain_detector OK')"
+          python -c "import chain_test_generator; print('chain_test_generator OK')"
 
       - name: Run tests
         run: |
@@ -50,4 +52,5 @@ jobs:
             test_spec_ingestion.py \
             test_failure_analyzer.py \
             test_compliance.py \
+            test_chain_detector.py \
             -v --tb=short

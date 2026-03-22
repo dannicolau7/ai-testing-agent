@@ -1,6 +1,6 @@
-# 🐳 Docker Deployment Guide
+# Docker Deployment Guide
 
-Complete guide for running AI Testing Agent and License Server with Docker.
+Guide for running AI Testing Agent with Docker.
 
 ---
 
@@ -16,9 +16,7 @@ Complete guide for running AI Testing Agent and License Server with Docker.
 
 ---
 
-## ⚡ Quick Start
-
-### Option 1: Run Agent Only (FREE Tier)
+## Quick Start
 
 ```bash
 # Build the image
@@ -34,20 +32,14 @@ docker run --rm \
 ls -la test_output/
 ```
 
-### Option 2: Full Stack with License Server
+Or with docker-compose:
 
 ```bash
-# Create .env file with your keys
 cp .env.example .env
-# Edit .env with your values
+# Edit .env with your ANTHROPIC_API_KEY
 
-# Start all services
 docker-compose up -d
-
-# Check status
 docker-compose ps
-
-# View logs
 docker-compose logs -f
 ```
 
@@ -60,10 +52,9 @@ docker-compose logs -f
 - **Docker** 20.10 or higher
 - **Docker Compose** 2.0 or higher
 
-### Optional (for paid tiers)
+### Optional
 
-- **Anthropic API Key** - For real Claude AI (PRO+)
-- **License Key** - For paid tier features
+- **Anthropic API Key** - For real Claude AI generation (mock is used otherwise)
 
 ### Installation
 
@@ -103,14 +94,6 @@ cp .env.example .env
 ```env
 # AI Testing Agent Configuration
 ANTHROPIC_API_KEY=your-anthropic-api-key-here
-AI_AGENT_LICENSE_KEY=your-license-key-here
-
-# License Server Configuration
-ADMIN_API_KEY=change-this-to-secure-value
-LICENSE_SERVER_PORT=5000
-
-# Optional: For production
-SECRET_KEY=your-secret-key-for-production
 ```
 
 ### 2. Volumes
@@ -119,7 +102,6 @@ The Docker setup creates persistent volumes for:
 
 - **test_output/** - Generated test files
 - **ai-agent-data** - Usage tracking data
-- **license-server-data** - License database
 
 ### 3. Networks
 
@@ -151,7 +133,6 @@ docker-compose -f docker-compose.dev.yml logs -f
 docker-compose -f docker-compose.dev.yml exec ai-testing-agent bash
 
 # Inside container:
-python cli.py tier
 python cli.py usage
 python cli.py run requirements.txt
 ```
@@ -191,7 +172,6 @@ docker-compose build
 
 # Build specific service
 docker-compose build ai-testing-agent
-docker-compose build license-server
 
 # Build with no cache
 docker-compose build --no-cache
@@ -203,9 +183,6 @@ docker-compose build --no-cache
 # Start all services in background
 docker-compose up -d
 
-# Start specific service
-docker-compose up -d license-server
-
 # View status
 docker-compose ps
 ```
@@ -216,14 +193,8 @@ docker-compose ps
 # Check health status
 docker-compose ps
 
-# Test license server
-curl http://localhost:5000/health
-
 # View agent logs
 docker-compose logs ai-testing-agent
-
-# View license server logs
-docker-compose logs license-server
 
 # Follow logs
 docker-compose logs -f
@@ -251,7 +222,6 @@ docker images | grep ai-testing
 
 # Remove images
 docker rmi ai-testing-agent:latest
-docker rmi ai-testing-license-server:latest
 
 # Prune unused images
 docker image prune -a
@@ -291,14 +261,8 @@ docker-compose logs -f
 # Last 100 lines
 docker-compose logs --tail=100
 
-# Specific service
-docker-compose logs license-server
-
 # Container logs
 docker logs ai-testing-agent
-
-# Execute command in running container
-docker-compose exec ai-testing-agent python cli.py tier
 ```
 
 ### Running the Agent
@@ -313,9 +277,6 @@ docker-compose run --rm \
   -v $(pwd)/my_requirements.txt:/app/requirements.txt \
   ai-testing-agent \
   python cli.py run /app/requirements.txt
-
-# Check tier info
-docker-compose run --rm ai-testing-agent python cli.py tier
 
 # Check usage
 docker-compose run --rm ai-testing-agent python cli.py usage
@@ -336,7 +297,6 @@ docker volume inspect ai-agent-data
 
 # Remove volumes
 docker volume rm ai-agent-data
-docker volume rm license-server-data
 
 # Backup volume data
 docker run --rm \
@@ -381,23 +341,6 @@ docker build -f Dockerfile.custom -t ai-testing-agent:custom .
 
 ### Environment-Specific Compose Files
 
-**docker-compose.prod.yml:**
-```yaml
-version: '3.8'
-services:
-  license-server:
-    image: ai-testing-license-server:latest
-    environment:
-      - FLASK_ENV=production
-    deploy:
-      replicas: 3
-      resources:
-        limits:
-          cpus: '0.5'
-          memory: 512M
-```
-
-Run:
 ```bash
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
@@ -407,12 +350,6 @@ docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```bash
 # Check agent health
 docker inspect --format='{{.State.Health.Status}}' ai-testing-agent
-
-# Check license server health
-docker inspect --format='{{.State.Health.Status}}' ai-testing-license-server
-
-# Or via API
-curl http://localhost:5000/health
 ```
 
 ---
@@ -423,7 +360,7 @@ curl http://localhost:5000/health
 
 ```bash
 # Check logs
-docker-compose logs license-server
+docker-compose logs ai-testing-agent
 
 # Inspect container
 docker inspect ai-testing-agent
@@ -481,8 +418,8 @@ docker-compose up -d
 # Check network
 docker network inspect ai-agent-network
 
-# Test connectivity
-docker-compose exec ai-testing-agent ping license-server
+# Test connectivity between containers
+docker-compose exec ai-testing-agent ping ai-testing-agent
 ```
 
 ### Clean Start
@@ -552,16 +489,13 @@ docker scan ai-testing-agent:latest
 - [Docker Documentation](https://docs.docker.com/)
 - [Docker Compose Documentation](https://docs.docker.com/compose/)
 - [AI Testing Agent Documentation](README.md)
-- [License Server Documentation](LICENSE_SERVER_README.md)
 
 ---
 
 ## 💬 Get Help
 
 **Issues with Docker setup?**
-- [Open a GitHub Issue](https://github.com/yourusername/ai-testing-agent/issues)
-- [Join our Discord](https://discord.gg/your-invite)
-- Email: support@yourdomain.com
+- [Open a GitHub Issue](https://github.com/dannicolau7/ai-testing-agent/issues)
 
 ---
 

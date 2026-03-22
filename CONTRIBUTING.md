@@ -119,7 +119,7 @@ pytest tests/ -v
 python cli.py --help
 
 # Try a basic command
-python cli.py tier
+python cli.py usage
 ```
 
 ---
@@ -258,7 +258,6 @@ class AITestingAgent:
     
     Attributes:
         api_key: Anthropic API key for Claude AI
-        tier: License tier (free, pro, team, enterprise)
         output_dir: Directory for generated tests and reports
         
     Example:
@@ -301,10 +300,10 @@ Closes #123
 ```
 
 ```bash
-fix(cli): Correct usage stats display for FREE tier
+fix(cli): Correct usage stats display in session summary
 
-The usage percentage was showing incorrectly for FREE tier users.
-Fixed calculation to properly handle monthly limits.
+The usage percentage was showing incorrectly in the stats output.
+Fixed calculation to properly handle session tracking.
 
 Fixes #456
 ```
@@ -410,7 +409,7 @@ We are committed to providing a welcoming and inclusive environment for everyone
 
 ### Enforcement
 
-Instances of unacceptable behavior may be reported to [opensource@yourdomain.com](mailto:opensource@yourdomain.com). All complaints will be reviewed and investigated.
+Instances of unacceptable behavior may be reported via [GitHub Issues](https://github.com/dannicolau7/ai-testing-agent/issues). All complaints will be reviewed and investigated.
 
 ---
 
@@ -493,10 +492,8 @@ Looking to contribute but not sure where to start? Here are areas where we'd lov
 
 ### Get Help
 
-- **GitHub Issues:** [Report bugs or request features](https://github.com/yourusername/ai-testing-agent/issues)
-- **GitHub Discussions:** [Ask questions and share ideas](https://github.com/yourusername/ai-testing-agent/discussions)
-- **Discord:** [Join our community](https://discord.gg/your-invite-link)
-- **Email:** [opensource@yourdomain.com](mailto:opensource@yourdomain.com)
+- **GitHub Issues:** [Report bugs or request features](https://github.com/dannicolau7/ai-testing-agent/issues)
+- **GitHub Discussions:** [Ask questions and share ideas](https://github.com/dannicolau7/ai-testing-agent/discussions)
 - **Stack Overflow:** Tag questions with `ai-testing-agent`
 
 ### Resources
@@ -545,6 +542,6 @@ Your contributions make AI Testing Agent better for everyone. Whether it's code,
 
 Made with ❤️ by the AI Testing Agent Community
 
-[⭐ Star on GitHub](https://github.com/yourusername/ai-testing-agent) • [🐛 Report Bug](https://github.com/yourusername/ai-testing-agent/issues) • [💡 Request Feature](https://github.com/yourusername/ai-testing-agent/issues)
+[Star on GitHub](https://github.com/dannicolau7/ai-testing-agent) • [Report Bug](https://github.com/dannicolau7/ai-testing-agent/issues) • [Request Feature](https://github.com/dannicolau7/ai-testing-agent/issues)
 
 </div>

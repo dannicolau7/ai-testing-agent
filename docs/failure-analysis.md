@@ -77,7 +77,7 @@ test_output/test_pets.py:37: AssertionError
 ======================================================================
 ```
 
-### Output — mock analysis (free tier, no API key)
+### Output — mock analysis (no API key)
 
 ```
 ======================================================================
@@ -162,7 +162,7 @@ pytest test_output/test_pets.py --tb=long
 
 ## Patterns detected without an API key
 
-The free-tier mock recognizes these failure signatures:
+The mock analyzer recognizes these failure signatures:
 
 - **Connection refused** → critical (server not running)
 - **401 / 403 / Unauthorized** → critical (auth issue)

@@ -46,9 +46,6 @@ jobs:
           python -m pytest \
             test_ai_routing.py \
             test_analytics.py \
-            test_endpoint_limits.py \
-            test_monthly_usage.py \
-            test_license_system.py \
             test_usage_tracking.py \
             test_spec_ingestion.py \
             test_failure_analyzer.py \

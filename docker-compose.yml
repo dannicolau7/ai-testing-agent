@@ -1,10 +1,8 @@
 # Docker Compose for AI Testing Agent
-# Production setup with license server
 
 version: '3.8'
 
 services:
-  # AI Testing Agent - Main application
   ai-testing-agent:
     build:
       context: .
@@ -13,56 +11,17 @@ services:
     container_name: ai-testing-agent
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - AI_AGENT_LICENSE_KEY=${AI_AGENT_LICENSE_KEY:-}
     volumes:
-      # Mount test output directory
       - ./test_output:/app/test_output
-      # Mount requirements directory (read-only)
       - ./requirements:/app/requirements:ro
-      # Mount usage data (persistent)
       - ai-agent-data:/root/.ai-testing-agent
     command: python cli.py run /app/requirements/example_requirements.txt
-    networks:
-      - ai-agent-network
-    depends_on:
-      - license-server
     restart: unless-stopped
-
-  # License Server - Validates licenses and tracks usage
-  license-server:
-    build:
-      context: .
-      dockerfile: Dockerfile.license-server
-    image: ai-testing-license-server:latest
-    container_name: ai-testing-license-server
-    ports:
-      - "${LICENSE_SERVER_PORT:-5000}:5000"
-    environment:
-      - ADMIN_API_KEY=${ADMIN_API_KEY:-admin-secret-key-change-in-production}
-      - PORT=5000
-      - DEBUG=False
-      - LOG_LEVEL=INFO
-    volumes:
-      # Persistent storage for license data (if using file-based storage)
-      - license-server-data:/app/data
-    networks:
-      - ai-agent-network
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
 
 networks:
   ai-agent-network:
     driver: bridge
 
 volumes:
-  # Persistent volume for usage tracking
   ai-agent-data:
-    driver: local
-  # Persistent volume for license server data
-  license-server-data:
     driver: local

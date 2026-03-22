@@ -50,58 +50,23 @@ def read_requirements_file(filepath: str) -> str:
 
 
 def cmd_usage(args):
-    """Display current monthly usage statistics."""
-    # Disable telemetry if flag is set
+    """Display current session usage statistics."""
     if args.no_telemetry:
         os.environ['AI_AGENT_TELEMETRY'] = 'false'
-    
-    # Create agent to get usage info
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
-    
-    # Get monthly usage stats
-    stats = agent.get_monthly_usage_stats()
-    
+
+    agent = AITestingAgent(api_key=args.api_key)
+    stats = agent.get_usage_stats()
+
     print("\n" + "="*70)
-    print("📊 Monthly Usage Statistics")
+    print("📊 Session Usage Statistics")
     print("="*70)
-    
-    print(f"\nCurrent Month: {stats['month']}")
-    print(f"Tier: {stats['tier'].upper()}")
-    
-    print(f"\n🔄 Test Runs:")
-    print(f"   Used:      {stats['runs_used']} / {stats['runs_limit']}")
-    if stats['runs_percent'] > 0:
-        print(f"   Usage:     {stats['runs_percent']:.1f}%")
-        # Add warning if approaching limit
-        if stats['runs_percent'] >= 80:
-            if stats['runs_percent'] >= 90:
-                print(f"   Status:    🚨 CRITICAL - {100 - stats['runs_percent']:.1f}% remaining")
-            else:
-                print(f"   Status:    ⚠️  WARNING - {100 - stats['runs_percent']:.1f}% remaining")
-        else:
-            print(f"   Status:    ✅ OK")
-    
-    print(f"\n🔌 Endpoints:")
-    print(f"   This Month: {stats['endpoints_this_month']}")
-    print(f"   Per Run:    {stats['endpoint_limit']}")
-    
-    print(f"\n💰 Cost This Month:")
-    print(f"   ${stats['cost_this_month']:.4f}")
-    
-    print(f"\n📅 Quota Reset:")
-    print(f"   Days:       {stats['days_until_reset']} days")
-    print(f"   Date:       {stats['reset_date']}")
-    
-    # Show upgrade message if on free tier with high usage
-    if stats['tier'] == 'free' and stats['runs_percent'] >= 70:
-        print("\n" + "💡 " + "="*66)
-        print("Running low on quota? Upgrade to PRO for:")
-        print("  • UNLIMITED test runs (never run out!)")
-        print("  • 10x more endpoints per run")
-        print("  • Real Claude AI")
-        print("  • Coming soon")
-        print("\n  Visit: https://yourdomain.com/pricing")
-    
+    print(f"API calls:          {stats['api_calls']}")
+    print(f"Tokens (in/out):    {stats['tokens_input']:,} / {stats['tokens_output']:,}")
+    print(f"Total tokens:       {stats['total_tokens']:,}")
+    print(f"Estimated cost:     {stats['cost_formatted']}")
+    print(f"Endpoints processed:{stats['endpoints_processed']}")
+    print(f"Tests generated:    {stats['tests_generated']}")
+    print(f"Session duration:   {stats['session_duration_formatted']}")
     print("="*70 + "\n")
 
 
@@ -111,37 +76,29 @@ def cmd_analytics_status(args):
         print("\n❌ Analytics module not available")
         print("   Make sure analytics.py is in the same directory\n")
         return
-    
-    # Import and initialize analytics for display
+
     from analytics import Analytics
-    analytics = Analytics(
-        license_key=args.license_key or os.getenv('AI_AGENT_LICENSE_KEY'),
-        tier='free'  # Default tier for status display
-    )
-    
-    # Show status
+    analytics = Analytics()
     status = analytics.get_status()
-    
+
     print("\n" + "="*70)
     print("📊 Analytics Status")
     print("="*70)
     print(f"Status: {'✅ Enabled' if status['enabled'] else '❌ Disabled'}")
     print(f"Anonymous ID: {status['anonymous_id']}")
-    print(f"Tier: {status['tier']}")
-    
+
     print("\n📦 What we collect:")
     for item in status['data_collected']:
         print(f"  ✓ {item}")
-    
+
     print("\n🔒 What we DON'T collect:")
     for item in status['data_not_collected']:
         print(f"  ✗ {item}")
-    
+
     print("\n⚙️  Opt-out methods:")
     for method in status['opt_out_methods']:
         print(f"  • {method}")
-    
-    print(f"\n📚 Privacy Policy: {status['privacy_policy']}")
+
     print("="*70 + "\n")
 
 
@@ -158,102 +115,6 @@ def cmd_analytics_disable(args):
     print("   To re-enable, remove or edit: ~/.ai-testing-agent/config.json\n")
 
 
-def cmd_tier(args):
-    """Display current tier information."""
-    # Create agent to get tier info (with telemetry disabled if flag is set)
-    if args.no_telemetry:
-        os.environ['AI_AGENT_TELEMETRY'] = 'false'
-    
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
-    
-    tier = agent.tier
-    limits = agent.limits[tier]
-    
-    # Tier emoji mapping
-    tier_emoji = {
-        'free': '🆓',
-        'pro': '✨',
-        'team': '👥',
-        'enterprise': '🏢'
-    }
-    
-    # License status
-    license_status = "✅ Activated" if args.license_key or os.getenv('AI_AGENT_LICENSE_KEY') else "❌ Not activated"
-    
-    print("\n" + "="*70)
-    print("🎯 AI Testing Agent - Tier Information")
-    print("="*70)
-    
-    print(f"\nCurrent Tier: {tier_emoji.get(tier, '📦')} {tier.upper()}")
-    print(f"License: {license_status}")
-    
-    # Format limits
-    endpoint_limit = "Unlimited" if limits['endpoints'] == float('inf') else str(limits['endpoints'])
-    runs_limit = "Unlimited" if limits['monthly_runs'] == float('inf') else str(limits['monthly_runs'])
-    
-    print(f"\nFeatures Available:")
-    if tier == 'free':
-        print("  ✓ Mock AI test generation")
-        print("  ✓ Up to 10 API endpoints")
-        print("  ✓ Basic pytest code generation")
-        print("  ✓ HTML/JSON/Markdown reports")
-        print("  ✓ PDF/Word document support")
-    elif tier == 'pro':
-        print("  ✓ Real Claude AI (advanced intelligence)")
-        print("  ✓ Up to 100 API endpoints")
-        print("  ✓ Production-quality test generation")
-        print("  ✓ Advanced test strategies")
-        print("  ✓ Unlimited monthly runs")
-        print("  ✓ Priority email support")
-    elif tier == 'team':
-        print("  ✓ All Pro features")
-        print("  ✓ Up to 500 API endpoints")
-        print("  ✓ Team collaboration tools")
-        print("  ✓ Shared test libraries")
-        print("  ✓ Role-based access control")
-        print("  ✓ Team management dashboard")
-    elif tier == 'enterprise':
-        print("  ✓ Unlimited everything")
-        print("  ✓ Unlimited API endpoints")
-        print("  ✓ Dedicated support team")
-        print("  ✓ Custom integrations")
-        print("  ✓ SLA guarantees")
-        print("  ✓ On-premise deployment option")
-    
-    print(f"\nLimits:")
-    print(f"  • Endpoints per run: {endpoint_limit}")
-    print(f"  • Monthly runs: {runs_limit}")
-    print(f"  • AI quality: {'Real Claude AI' if tier != 'free' else 'Mock (basic)'}")
-    
-    # Show upgrade information if not on highest tier
-    if tier == 'free':
-        print("\n" + "💡 " + "="*66)
-        print("Upgrade to PRO for:")
-        print("  • Real Claude AI (much smarter!)")
-        print("  • 100 endpoints per run (10x more)")
-        print("  • Unlimited monthly runs")
-        print("  • Advanced test strategies")
-        print("  • Priority email support")
-        print("  • Coming soon")
-    elif tier == 'pro':
-        print("\n" + "💡 " + "="*66)
-        print("Upgrade to TEAM for:")
-        print("  • 500 endpoints per run (5x more)")
-        print("  • Team collaboration features")
-        print("  • Shared test libraries")
-        print("  • Team management dashboard")
-        print("  • Coming soon")
-    elif tier == 'team':
-        print("\n" + "💡 " + "="*66)
-        print("Upgrade to ENTERPRISE for:")
-        print("  • Unlimited endpoints")
-        print("  • Dedicated support team")
-        print("  • Custom integrations")
-        print("  • SLA guarantees")
-        print("  • Contact sales for pricing")
-    
-    print("\n📚 Visit: https://yourdomain.com/pricing")
-    print("="*70 + "\n")
 
 
 def cmd_analyze(args):
@@ -265,7 +126,7 @@ def cmd_analyze(args):
     print("🔍 Analyzing requirements...")
     
     requirements_text = read_requirements_file(args.requirements)
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    agent = AITestingAgent(api_key=args.api_key)
     
     # Parse requirements
     requirements = agent.parse_requirements(requirements_text)
@@ -287,7 +148,7 @@ def cmd_generate(args):
     print("💻 Generating pytest code...")
     
     requirements_text = read_requirements_file(args.requirements)
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    agent = AITestingAgent(api_key=args.api_key)
     
     # Parse and generate
     agent.parse_requirements(requirements_text)
@@ -323,7 +184,7 @@ def cmd_run(args):
         os.environ['AI_AGENT_TELEMETRY'] = 'false'
 
     input_path = args.requirements
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    agent = AITestingAgent(api_key=args.api_key)
 
     # ── OpenAPI / Swagger spec path ──────────────────────────────────────────
     force_spec = getattr(args, "spec", False)
@@ -399,7 +260,7 @@ def cmd_failures(args):
     if args.no_telemetry:
         os.environ['AI_AGENT_TELEMETRY'] = 'false'
 
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    agent = AITestingAgent(api_key=args.api_key)
     result = agent.analyze_test_failures(list(args.paths))
 
     if getattr(args, 'json_output', False):
@@ -802,7 +663,7 @@ def cmd_report(args):
     print(f"📋 Generating {args.format} report...")
     
     requirements_text = read_requirements_file(args.requirements)
-    agent = AITestingAgent(api_key=args.api_key, license_key=args.license_key)
+    agent = AITestingAgent(api_key=args.api_key)
     
     # Run workflow and generate report
     agent.run_autonomous(requirements_text)
@@ -1056,32 +917,27 @@ def cmd_analyze_code(args):
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description='AI Testing Agent - Autonomous test automation with tier-based licensing',
+        description='AI Testing Agent - Autonomous pytest generation powered by Claude',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Check your tier and features
-  python cli.py tier
-  
-  # Analyze requirements (Free tier: mock AI, up to 10 endpoints)
+  # Analyze requirements
   python cli.py analyze requirements.txt
-  
-  # Generate pytest code (Pro tier recommended for best results)
-  python cli.py generate requirements.txt --license-key YOUR_LICENSE
-  
-  # Run full autonomous workflow (requires API key for paid tiers)
-  python cli.py run requirements.txt --api-key YOUR_KEY --license-key YOUR_LICENSE
-  
+
+  # Generate pytest code
+  python cli.py generate requirements.txt
+
+  # Run full autonomous workflow
+  python cli.py run requirements.txt --api-key YOUR_KEY
+
+  # Parse an OpenAPI spec
+  python cli.py run openapi.yaml
+
+  # Run with compliance tagging
+  python cli.py run openapi.yaml --compliance compliance.yaml
+
   # Generate HTML report
   python cli.py report requirements.txt --format html
-
-Tier Information:
-  Free tier    : Mock AI, 10 endpoints, 50 runs/month
-  Pro tier     : Real AI, 100 endpoints, unlimited runs ($29/mo)
-  Team tier    : 500 endpoints, team features ($99/mo)
-  Enterprise   : Unlimited everything (contact sales)
-  
-Visit https://yourdomain.com/pricing for more information.
         """
     )
     
@@ -1093,16 +949,10 @@ Visit https://yourdomain.com/pricing for more information.
     
     parser.add_argument(
         '--api-key',
-        help='Anthropic API key for paid tiers (or set ANTHROPIC_API_KEY env var)',
+        help='Anthropic API key (or set ANTHROPIC_API_KEY env var)',
         default=None
     )
-    
-    parser.add_argument(
-        '--license-key',
-        help='License key for paid tiers (or set AI_AGENT_LICENSE_KEY env var)',
-        default=None
-    )
-    
+
     parser.add_argument(
         '--no-telemetry',
         action='store_true',
@@ -1125,21 +975,15 @@ Visit https://yourdomain.com/pricing for more information.
     )
     
     # Usage command
-    usage_parser = subparsers.add_parser(
+    subparsers.add_parser(
         'usage',
-        help='Display monthly usage statistics and quota information'
+        help='Display session usage statistics'
     )
-    
-    # Tier command
-    tier_parser = subparsers.add_parser(
-        'tier',
-        help='Display current tier information and features'
-    )
-    
+
     # Analyze command
     analyze_parser = subparsers.add_parser(
         'analyze',
-        help='Analyze requirements and generate test cases (Free tier: up to 10 endpoints)'
+        help='Analyze requirements and generate test cases'
     )
     analyze_parser.add_argument(
         'requirements',
@@ -1149,7 +993,7 @@ Visit https://yourdomain.com/pricing for more information.
     # Generate command
     generate_parser = subparsers.add_parser(
         'generate',
-        help='Generate pytest code from requirements (Pro tier recommended)'
+        help='Generate pytest code from requirements'
     )
     generate_parser.add_argument(
         'requirements',
@@ -1159,7 +1003,7 @@ Visit https://yourdomain.com/pricing for more information.
     # Run command
     run_parser = subparsers.add_parser(
         'run',
-        help='Run full autonomous testing workflow (checks tier limits)'
+        help='Run full autonomous testing workflow'
     )
     run_parser.add_argument(
         'requirements',
@@ -1236,7 +1080,7 @@ Visit https://yourdomain.com/pricing for more information.
     # Report command
     report_parser = subparsers.add_parser(
         'report',
-        help='Generate test report (all tiers)'
+        help='Generate test report'
     )
     report_parser.add_argument(
         'requirements',
@@ -1384,8 +1228,6 @@ Visit https://yourdomain.com/pricing for more information.
         cmd_analytics_disable(args)
     elif args.command == 'usage':
         cmd_usage(args)
-    elif args.command == 'tier':
-        cmd_tier(args)
     elif args.command == 'analyze':
         cmd_analyze(args)
     elif args.command == 'generate':

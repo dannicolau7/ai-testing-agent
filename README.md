@@ -1,146 +1,19 @@
 # AI Testing Agent
 
-**Autonomous pytest generation powered by Claude AI.**
-Feed it requirements or an OpenAPI spec — get a complete test suite out.
+Autonomous pytest generation from requirements documents and OpenAPI specs.
 
 [![Tests](https://github.com/dannicolau7/ai-testing-agent/actions/workflows/tests.yml/badge.svg)](https://github.com/dannicolau7/ai-testing-agent/actions/workflows/tests.yml)
-[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
 ---
 
-## 30-second demo
-
-```bash
-git clone https://github.com/dannicolau7/ai-testing-agent.git
-cd ai-testing-agent
-pip install -r requirements.txt
-
-# Run with built-in mock AI (no API key needed)
-echo "POST /api/checkout — validate card, process payment, return confirmation or error" > reqs.txt
-python cli.py run reqs.txt
-```
-
-Output:
-```
-Analyzing requirements...
-Generating test cases...
-
-  ✓ test_valid_payment_returns_200
-  ✓ test_missing_card_number_returns_400
-  ✓ test_expired_card_returns_402
-  ✓ test_insufficient_funds_returns_402
-  ✓ test_invalid_cvv_returns_422
-  ✓ test_concurrent_checkout_idempotency
-
-Generated 6 test cases → test_output/test_checkout.py
-Report → test_output/test_report.html
-```
-
-With a real Claude API key, the agent generates richer test cases, adds security scenarios, and provides failure analysis.
-
----
-
-## OpenAPI spec demo
-
-Feed any OpenAPI/Swagger spec directly — the agent auto-detects it:
-
-```bash
-# Auto-detected by .yaml extension and openapi: key
-python cli.py run test_specs/petstore.yaml
-```
-
-The agent parses the spec, resolves `$ref` schemas, and writes one pytest file
-per tag group:
-
-```
-📄 Loading spec: test_specs/petstore.yaml
-   Title   : Petstore API
-   Version : OpenAPI 3.x
-   Base URL: https://petstore.swagger.io/v2
-   Endpoints: 4
-
-🔧 Generating tests for tag: [pets] (4 endpoints)
-   ✓ Wrote test_pets.py (72 lines)
-
-✅ Spec ingestion complete — 1 file(s) written to test_output/
-```
-
-Generated `test_pets.py` (mock AI, free tier):
-
-```python
-"""
-Tests for pets endpoints — generated from OpenAPI spec
-API: Petstore API
-"""
-import pytest
-import requests
-
-BASE_URL = "https://petstore.swagger.io/v2"
-
-
-@pytest.fixture(scope='session')
-def api_client():
-    """Shared requests session for all tests in this module."""
-    session = requests.Session()
-    return session
-
-
-def test_listPets_success(api_client):
-    """List all pets — expects 200."""
-    url = f'{BASE_URL}/pets'
-    response = api_client.get(url, params={"limit": 20})
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    if data:
-        assert "id" in data[0]
-        assert "name" in data[0]
-
-
-def test_createPet_success(api_client):
-    """Create a pet — expects 201."""
-    url = f'{BASE_URL}/pets'
-    payload = {"name": "Fluffy", "tag": "cat"}
-    response = api_client.post(url, json=payload)
-    assert response.status_code == 201
-    data = response.json()
-    assert "id" in data
-    assert "name" in data
-
-
-def test_createPet_missing_required_field(api_client):
-    """POST /pets with empty body — expects 4xx."""
-    url = f'{BASE_URL}/pets'
-    response = api_client.post(url, json={})
-    assert response.status_code in [400, 422]
-
-
-def test_getPet_not_found(api_client):
-    """GET /pets/{petId} with non-existent ID — expects 404."""
-    url = f'{BASE_URL}/pets/99999'
-    response = api_client.get(url)
-    assert response.status_code == 404
-```
-
-With `ANTHROPIC_API_KEY` set, Claude generates deeper tests including security
-scenarios, schema validation edge cases, and auth token flows.
-
----
-
 ## What it does
 
-1. **Reads** requirements documents (txt, md, PDF, docx) or OpenAPI/Swagger specs
-2. **Generates** comprehensive test cases — happy paths, error scenarios, edge cases
-3. **Writes** production-ready pytest files with fixtures, parametrize, and docstrings
-4. **Executes** the tests and captures results
-5. **Analyzes** failures using Claude AI — explains root cause and suggests fixes
-6. **Reports** in HTML, JSON, or Markdown
+Feed it a requirements document (txt, md, PDF, docx) or an OpenAPI/Swagger spec. It reads the endpoints and user stories, generates a comprehensive pytest suite, runs the tests, and if any fail, sends the tracebacks to Claude for root cause analysis.
 
----
-
-## How it works
+Works without an API key — mock AI produces structurally valid tests for prototyping and CI pipelines. Set `ANTHROPIC_API_KEY` to get full Claude-generated test cases including security scenarios, schema edge cases, and auth flows.
 
 ```
 requirements.txt / openapi.yaml
@@ -181,59 +54,24 @@ requirements.txt / openapi.yaml
 - Auth handling: Bearer, API key, OAuth2, Basic
 
 **Input formats**
-- Plain text requirements
-- Markdown user stories and acceptance criteria
-- OpenAPI 3.x / Swagger 2.x specs (YAML or JSON)
+- Plain text requirements and Markdown user stories
+- OpenAPI 3.x / Swagger 2.x specs (YAML or JSON) with `$ref` resolution
 - PDF and Word documents
 
-**AI-powered failure analysis** — see [docs/failure-analysis.md](docs/failure-analysis.md)
+**AI failure analysis**
 - Runs pytest, captures tracebacks and assertion errors
 - Sends each failure to Claude for root cause analysis
 - Returns structured report: severity, likely cause, recommended fix
-- Free-tier mock classifies failures by pattern (connection, auth, schema, timeout)
-- `python cli.py failures test_output/` or `run openapi.yaml --analyze`
-
-**CLI interface**
-
-```bash
-python cli.py run requirements.txt          # generate + execute tests
-python cli.py run openapi.yaml              # spec ingestion (auto-detected)
-python cli.py run openapi.yaml --analyze    # generate, run, and analyze failures
-python cli.py failures test_output/         # analyze failures in existing test files
-python cli.py analyze requirements.txt      # analyze only, no execution
-python cli.py report requirements.txt       # generate HTML/JSON/MD report
-python cli.py usage                         # show monthly usage stats
-python cli.py tier                          # show current configuration
-python cli.py compliance-report test_output/ --compliance compliance.yaml  # coverage report
-```
-
-**Compliance workflow**
-
-```bash
-# Copy the example config and select your frameworks
-cp compliance.yaml.example compliance.yaml
-
-# Generate tests with compliance marks injected
-python cli.py run openapi.yaml --compliance compliance.yaml
-
-# Check which controls have test coverage
-python cli.py compliance-report test_output/ --compliance compliance.yaml
-python cli.py compliance-report test_output/ --compliance compliance.yaml --format markdown > compliance_report.md
-```
-
-**Environment management** (like Postman, for your test configs)
-```bash
-python cli.py env create staging
-python cli.py env set staging BASE_URL https://api.staging.example.com
-python cli.py env use staging
-```
+- Without API key: classifies failures by pattern (connection, auth, schema, timeout)
 
 **Compliance tagging** — HIPAA · NIST 800-53 · ISO 27001
-- Map each endpoint to applicable regulatory controls automatically
-- Inject `@pytest.mark.nist_ia_2` / `@pytest.mark.hipaa_164_312_d` decorators
-- Generate a coverage report showing which controls have tests and which have gaps
-- `python cli.py run openapi.yaml --compliance compliance.yaml`
-- `python cli.py compliance-report test_output/ --compliance compliance.yaml`
+- Maps endpoints to applicable regulatory controls
+- Injects `@pytest.mark.nist_ia_2` / `@pytest.mark.hipaa_164_312_d` decorators
+- Generates coverage reports showing which controls have tests and which have gaps
+
+**Environment management**
+- Per-environment variable sets (like Postman, for test configs)
+- Switch between staging, production, and local with one command
 
 **CI/CD ready**
 - GitHub Actions workflow included
@@ -244,56 +82,97 @@ python cli.py env use staging
 
 ## Installation
 
-**Requirements:** Python 3.8+
+Requires Python 3.9+.
 
 ```bash
-# Clone
 git clone https://github.com/dannicolau7/ai-testing-agent.git
 cd ai-testing-agent
-
-# Install
 pip install -r requirements.txt
 
-# Configure (optional — works without for mock AI)
+# Optional: set your Claude API key for real AI generation
 cp .env.example .env
-# Add your ANTHROPIC_API_KEY to .env for full Claude AI capability
+# edit .env and set ANTHROPIC_API_KEY
+```
+
+---
+
+## Quick start
+
+```bash
+# Works without an API key
+echo "POST /api/checkout — validate card, process payment, return confirmation or error" > reqs.txt
+python cli.py run reqs.txt
+```
+
+Output:
+```
+Analyzing requirements...
+Generating test cases...
+
+  ✓ test_valid_payment_returns_200
+  ✓ test_missing_card_number_returns_400
+  ✓ test_expired_card_returns_402
+  ✓ test_insufficient_funds_returns_402
+  ✓ test_invalid_cvv_returns_422
+  ✓ test_concurrent_checkout_idempotency
+
+Generated 6 test cases → test_output/test_checkout.py
+Report → test_output/test_report.html
+```
+
+From an OpenAPI spec (auto-detected by `.yaml` extension):
+
+```bash
+python cli.py run test_specs/petstore.yaml
+```
+
+```
+📄 Loading spec: test_specs/petstore.yaml
+   Title   : Petstore API
+   Version : OpenAPI 3.x
+   Base URL: https://petstore.swagger.io/v2
+   Endpoints: 4
+
+🔧 Generating tests for tag: [pets] (4 endpoints)
+   ✓ Wrote test_pets.py (72 lines)
+
+✅ Spec ingestion complete — 1 file(s) written to test_output/
 ```
 
 ---
 
 ## Usage
 
-### From a requirements file
-
 ```bash
-# Write your requirements
-cat > reqs.txt << 'EOF'
-Feature: User authentication
-- POST /auth/login accepts email + password, returns JWT
-- Invalid credentials return 401
-- Account locks after 5 failed attempts
-- GET /auth/me returns current user (requires valid JWT)
-- POST /auth/logout invalidates the token
-EOF
-
-python cli.py run reqs.txt
+python cli.py run requirements.txt           # generate + execute tests
+python cli.py run openapi.yaml              # spec ingestion (auto-detected)
+python cli.py run openapi.yaml --analyze    # generate, run, and analyze failures
+python cli.py failures test_output/         # analyze failures in existing test output
+python cli.py analyze requirements.txt      # analyze only, no execution
+python cli.py report requirements.txt       # generate report (HTML/JSON/MD)
+python cli.py usage                         # show session usage stats
+python cli.py analytics                     # show telemetry status
+python cli.py analytics-disable             # disable telemetry permanently
 ```
 
-### From an OpenAPI spec
+**Key flags:**
 
-```bash
-python cli.py run openapi.yaml --format spec
-```
+| Flag | Description |
+|---|---|
+| `--api-key KEY` | Claude API key (overrides `ANTHROPIC_API_KEY`) |
+| `--analyze` | Run failure analysis after test execution |
+| `--format html\|json\|markdown` | Report format (default: html) |
+| `--compliance compliance.yaml` | Apply compliance tagging |
+| `--no-telemetry` | Disable analytics for this run |
+| `--verbose` | Detailed output |
 
-### Python API
+**Python API:**
 
 ```python
 from ai_testing_agent import AITestingAgent
 
-agent = AITestingAgent()  # uses mock AI by default
-
-# Or with Claude API for full capability
-agent = AITestingAgent(api_key="sk-ant-...")
+agent = AITestingAgent()                        # mock AI
+agent = AITestingAgent(api_key="sk-ant-...")    # real Claude
 
 with open("reqs.txt") as f:
     result = agent.run_autonomous(f.read())
@@ -302,22 +181,42 @@ print(f"Generated {result['test_cases']} test cases")
 print(f"Report: {result['report']}")
 ```
 
-### Failure analysis
+**Environment management:**
 
 ```bash
-# Run tests — if any fail, analyze them
-python cli.py run reqs.txt --analyze
+python cli.py env create staging
+python cli.py env set staging BASE_URL https://api.staging.example.com
+python cli.py env use staging
 ```
 
-Example analysis output:
+---
+
+## Compliance
+
+The compliance module maps endpoints to controls from HIPAA, NIST 800-53, and ISO 27001, then injects pytest marks into generated test files.
+
+```bash
+# Copy the example config and select your frameworks
+cp compliance.yaml.example compliance.yaml
+
+# Generate tests with compliance marks
+python cli.py run openapi.yaml --compliance compliance.yaml
+
+# Check control coverage
+python cli.py compliance-report test_output/ --compliance compliance.yaml
+python cli.py compliance-report test_output/ --compliance compliance.yaml --format markdown > compliance_report.md
 ```
-FAILURE ANALYSIS: test_login_invalid_credentials
-Severity: Medium
-Likely cause: API returns 200 with {"error": "invalid"} instead of 401.
-              The test asserts status_code == 401 but received 200.
-Recommended fix: Update assertion to check response body, or confirm with
-                 API team that 401 is the intended contract for bad credentials.
+
+Example generated mark:
+
+```python
+@pytest.mark.hipaa_164_312_d
+@pytest.mark.nist_ia_2
+def test_login_requires_authentication(api_client):
+    ...
 ```
+
+The coverage report shows which controls have test coverage and which have gaps, by framework and by endpoint.
 
 ---
 
@@ -327,25 +226,21 @@ Recommended fix: Update assertion to check response body, or confirm with
 ai-testing-agent/
 ├── ai_testing_agent.py     # core orchestration engine
 ├── cli.py                  # command-line interface
-├── code_analyzer.py        # parses endpoints from specs and code
-├── request_runner.py       # sends HTTP requests, saves as tests
+├── code_analyzer.py        # parses endpoints from specs and requirements
+├── spec_ingestion.py       # OpenAPI/Swagger parsing and $ref resolution
 ├── request_body_handler.py # generates test code for request body types
 ├── auth_handler.py         # authentication fixture generation
+├── failure_analyzer.py     # AI-powered failure root cause analysis
 ├── data_manager.py         # test data loading (YAML, JSON, Excel)
-├── env_manager.py          # environment management (like Postman)
-├── project_generator.py    # generates full project structure
-├── compliance.py           # HIPAA/NIST/ISO control mapping and pytest mark injection
+├── env_manager.py          # per-environment variable management
+├── compliance.py           # HIPAA/NIST/ISO control mapping and mark injection
 ├── compliance.yaml.example # template compliance config — copy to compliance.yaml
-├── analytics.py            # privacy-first usage telemetry (opt-out)
-├── tests/
-│   ├── test_ai_routing.py
-│   ├── test_analytics.py
-│   ├── test_endpoint_limits.py
-│   └── ...
-├── .github/workflows/
-│   ├── tests.yml           # runs on every push
-│   └── publish.yml         # publishes to PyPI on release
-└── docs/                   # documentation
+├── analytics.py            # anonymous usage telemetry (opt-out)
+├── Dockerfile
+├── docker-compose.yml
+└── .github/workflows/
+    ├── tests.yml           # runs on every push
+    └── publish.yml         # publishes to PyPI on release
 ```
 
 ---
@@ -354,53 +249,31 @@ ai-testing-agent/
 
 Copy `.env.example` to `.env` and set:
 
-| Variable | Required | Description |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | No | Claude API key. Without it, mock AI is used. |
-| `AI_AGENT_LICENSE_KEY` | No | For extended limits (coming soon). |
-| `AI_TESTING_NO_ANALYTICS` | No | Set to `1` to disable telemetry. |
+| Variable | Description |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude API key. Without it, mock AI is used. |
+| `AI_TESTING_NO_ANALYTICS` | Set to `1` to disable telemetry. |
 
-The tool works out of the box with no keys. Mock AI produces realistic test structures useful for learning, prototyping, and CI pipelines that don't need real API access.
-
----
-
-## Telemetry
-
-Anonymous usage statistics are collected by default (no code, no test content, no PII). To opt out:
+**Telemetry:** Anonymous usage events are collected by default (no code, no requirements content, no PII). To opt out permanently:
 
 ```bash
-export AI_TESTING_NO_ANALYTICS=1
+export AI_AGENT_TELEMETRY=false
 ```
 
 See [ANALYTICS.md](ANALYTICS.md) for exactly what is collected.
 
 ---
 
-## Roadmap
-
-- [x] Core autonomous test generation
-- [x] Mock AI (no API key needed)
-- [x] Multi-format reports (HTML, JSON, Markdown)
-- [x] Environment management
-- [x] Docker support
-- [x] OpenAPI spec ingestion — YAML/JSON, $ref resolution, per-tag output (Week 2)
-- [x] AI failure analysis — `--analyze` flag + `failures` command (Week 3)
-- [x] Compliance tagging — HIPAA, NIST 800-53, ISO 27001 (Week 4)
-- [ ] Multi-endpoint test chaining (Month 2)
-- [ ] Playwright support for OAuth flows (Month 3)
-- [ ] LLM endpoint validation — hallucination detection (Month 3)
-
----
-
 ## Contributing
 
-Pull requests are welcome. For significant changes, open an issue first to discuss approach.
+Open an issue before starting significant changes.
 
 ```bash
-# Run tests
-python -m pytest test_ai_routing.py test_analytics.py test_endpoint_limits.py -v
+# Run the test suite
+python -m pytest test_ai_routing.py test_analytics.py test_usage_tracking.py \
+  test_spec_ingestion.py test_failure_analyzer.py test_compliance.py -v
 
-# Lint
+# Check for syntax errors
 flake8 --select=E9,F63,F7,F82 .
 ```
 

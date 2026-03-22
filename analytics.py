@@ -5,7 +5,7 @@ This module tracks anonymous product usage to help improve the tool.
 NO personal data or code is collected - only usage statistics.
 
 Privacy guarantees:
-- Anonymous user IDs only (hashed license keys)
+- Anonymous user IDs only (machine-based hash)
 - No requirements content sent
 - No code or test data transmitted
 - Opt-out support via multiple methods
@@ -39,19 +39,16 @@ class Analytics:
     compromising user privacy. All tracking can be disabled via opt-out.
     """
     
-    # Analytics endpoint
-    ANALYTICS_ENDPOINT = "https://analytics.yourdomain.com/v1/track"
-    
     # Timeout for analytics requests (never block user operations)
     REQUEST_TIMEOUT = 2  # seconds
-    
-    def __init__(self, license_key: Optional[str] = None, tier: str = 'free'):
+
+    def __init__(self, license_key: Optional[str] = None, tier: Optional[str] = None):
         """
         Initialize analytics tracker.
-        
+
         Args:
-            license_key: License key (will be hashed for anonymous ID)
-            tier: Current tier (free/pro/team/enterprise)
+            license_key: Accepted for backward compatibility, not used
+            tier: Accepted for backward compatibility, not used
         """
         self.license_key = license_key
         self.tier = tier
@@ -108,29 +105,21 @@ class Analytics:
     
     def _generate_anonymous_id(self) -> str:
         """
-        Generate anonymous user ID from license key.
-        
-        Uses SHA256 hashing to ensure the license key cannot be
-        reverse-engineered from the anonymous ID.
-        
+        Generate anonymous machine-based user ID.
+
+        Uses SHA256 hashing of machine hostname. Cannot be reversed.
+
         Returns:
-            Hashed anonymous ID
+            16-character hashed anonymous ID
         """
-        if self.license_key:
-            # Hash the license key for anonymity
-            return hashlib.sha256(self.license_key.encode()).hexdigest()[:16]
-        else:
-            # Generate machine-based ID for free tier users
-            try:
-                # Use a combination of machine-specific data
-                import platform
-                import socket
-                
-                machine_data = f"{platform.node()}-{socket.gethostname()}"
-                return hashlib.sha256(machine_data.encode()).hexdigest()[:16]
-            except Exception:
-                # Fallback to a generic ID
-                return "anonymous-user"
+        try:
+            import platform
+            import socket
+
+            machine_data = f"{platform.node()}-{socket.gethostname()}"
+            return hashlib.sha256(machine_data.encode()).hexdigest()[:16]
+        except Exception:
+            return "anonymous-user"
     
     def _check_first_run(self) -> bool:
         """
@@ -178,11 +167,10 @@ class Analytics:
         print("📊 Anonymous Usage Analytics")
         print("="*70)
         print("""
-Anonymous usage analytics are enabled to help improve the product.
+Anonymous usage analytics are enabled to help improve the tool.
 
 What we collect:
   ✓ Tool usage events (started, completed, errors)
-  ✓ Tier information (free/pro/team/enterprise)
   ✓ Performance metrics (duration, endpoints, tests generated)
   ✓ Success/failure status
 
@@ -190,16 +178,14 @@ What we DON'T collect:
   ✗ NO personal data or identifiable information
   ✗ NO requirements content or business logic
   ✗ NO generated code or test data
-  ✗ NO IP addresses (anonymized at collection)
+  ✗ NO IP addresses
 
 Your privacy is important. All data is anonymous.
 
 Opt out using any of these methods:
   • Environment variable: export AI_AGENT_TELEMETRY=false
   • Config file: echo '{"telemetry_enabled": false}' > ~/.ai-testing-agent/config.json
-  • CLI flag: --no-telemetry (when available)
-
-Learn more: https://yourdomain.com/privacy
+  • CLI flag: --no-telemetry
 """)
         print("="*70 + "\n")
         
@@ -235,14 +221,9 @@ Learn more: https://yourdomain.com/privacy
             "event": event,
             "properties": properties or {},
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "anonymous_id": self.anonymous_id,
-            "tier": self.tier
+            "anonymous_id": self.anonymous_id
         }
-        
-        # Add tier to properties for convenience
-        if properties:
-            payload["properties"]["tier"] = self.tier
-        
+
         # Send analytics in background thread (non-blocking)
         if blocking:
             self._send_analytics(payload)
@@ -256,55 +237,22 @@ Learn more: https://yourdomain.com/privacy
     
     def _send_analytics(self, payload: Dict[str, Any]):
         """
-        Send analytics payload to server.
-        
-        This method handles all errors gracefully and never raises exceptions.
-        If the analytics server is down or unreachable, it fails silently.
-        
+        Send analytics payload to server. Fails silently on any error.
+
         Args:
             payload: Analytics payload to send
         """
-        try:
-            response = requests.post(
-                self.ANALYTICS_ENDPOINT,
-                json=payload,
-                timeout=self.REQUEST_TIMEOUT,
-                headers={
-                    'Content-Type': 'application/json',
-                    'User-Agent': 'AI-Testing-Agent/1.0'
-                }
-            )
-            
-            # Log success (optional, can be removed for complete silence)
-            if response.status_code == 200:
-                pass  # Success - silent
-            else:
-                pass  # Failed but don't notify user
-                
-        except requests.exceptions.Timeout:
-            # Timeout - fail silently
-            pass
-        
-        except requests.exceptions.ConnectionError:
-            # Connection error - fail silently
-            pass
-        
-        except Exception:
-            # Any other error - fail silently
-            pass
+        pass  # Analytics endpoint not configured
     
-    def track_tool_started(self, tier: str):
+    def track_tool_started(self, tier: Optional[str] = None):
         """Track when the tool starts."""
-        self.track_event("tool_started", {"tier": tier})
+        self.track_event("tool_started")
     
     def track_test_generation_started(self, endpoint_count: int):
         """Track when test generation begins."""
         self.track_event(
             "test_generation_started",
-            {
-                "endpoints": endpoint_count,
-                "tier": self.tier
-            }
+            {"endpoints": endpoint_count}
         )
     
     def track_test_generation_complete(
@@ -326,7 +274,6 @@ Learn more: https://yourdomain.com/privacy
             error: Error type if failed (e.g., "api_error", "limit_exceeded")
         """
         properties = {
-            "tier": self.tier,
             "endpoints": endpoints,
             "tests_generated": tests_generated,
             "duration_seconds": round(duration_seconds, 2),
@@ -338,59 +285,22 @@ Learn more: https://yourdomain.com/privacy
         
         self.track_event("test_generation_complete", properties)
     
-    def track_tier_usage(self, tier: str, endpoints_used: int, tests_generated: int):
-        """Track tier-specific usage metrics."""
-        self.track_event(
-            "tier_usage",
-            {
-                "tier": tier,
-                "endpoints_used": endpoints_used,
-                "tests_generated": tests_generated
-            }
-        )
-    
     def track_error(self, error_type: str, error_message: str = ""):
         """
-        Track errors encountered.
-        
-        Note: Only error types are sent, not full error messages
-        to protect user privacy.
-        
+        Track errors encountered. Only error type is sent, not the message.
+
         Args:
-            error_type: Type of error (e.g., "api_timeout", "license_invalid")
-            error_message: Brief error category (no sensitive details)
+            error_type: Type of error (e.g., "api_timeout", "api_error")
+            error_message: Ignored — not transmitted
         """
-        # Sanitize error message to remove any potential sensitive data
-        safe_message = error_type  # Only send the type, not the full message
-        
         self.track_event(
             "error_encountered",
-            {
-                "error_type": error_type,
-                "tier": self.tier
-            }
+            {"error_type": error_type}
         )
-    
+
     def track_upgrade_prompt_shown(self, from_tier: str, to_tier: str, reason: str):
-        """Track when upgrade prompts are shown to users."""
-        self.track_event(
-            "upgrade_prompt_shown",
-            {
-                "from_tier": from_tier,
-                "to_tier": to_tier,
-                "reason": reason  # e.g., "endpoint_limit", "monthly_limit"
-            }
-        )
-    
-    def track_monthly_reset(self, tier: str, runs_used: int):
-        """Track when monthly usage resets."""
-        self.track_event(
-            "monthly_reset",
-            {
-                "tier": tier,
-                "runs_used_last_month": runs_used
-            }
-        )
+        """Accepted for backward compatibility. No-op."""
+        pass
     
     def disable_telemetry(self):
         """
@@ -438,12 +348,10 @@ Learn more: https://yourdomain.com/privacy
             "opt_out_methods": [
                 "Environment: export AI_AGENT_TELEMETRY=false",
                 "Config file: ~/.ai-testing-agent/config.json",
-                "CLI flag: --no-telemetry (if supported)"
+                "CLI flag: --no-telemetry"
             ],
-            "privacy_policy": "https://yourdomain.com/privacy",
             "data_collected": [
                 "Usage events (started, completed, errors)",
-                "Tier information",
                 "Performance metrics (duration, counts)",
                 "Success/failure status"
             ],
@@ -508,21 +416,19 @@ def show_analytics_status():
         print("="*70)
         print(f"Status: {'✅ Enabled' if status['enabled'] else '❌ Disabled'}")
         print(f"Anonymous ID: {status['anonymous_id']}")
-        print(f"Tier: {status['tier']}")
-        
+
         print("\n📦 What we collect:")
         for item in status['data_collected']:
             print(f"  ✓ {item}")
-        
+
         print("\n🔒 What we DON'T collect:")
         for item in status['data_not_collected']:
             print(f"  ✗ {item}")
-        
+
         print("\n⚙️  Opt-out methods:")
         for method in status['opt_out_methods']:
             print(f"  • {method}")
-        
-        print(f"\n📚 Privacy Policy: {status['privacy_policy']}")
+
         print("="*70 + "\n")
     else:
         print("Analytics not initialized")

@@ -31,13 +31,6 @@ except ImportError:
     ANALYTICS_AVAILABLE = False
     Analytics = None
 
-# Optional import for license validation
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
-    warnings.warn("requests library not available - license validation disabled")
 
 # Optional import for Anthropic API
 try:
@@ -51,68 +44,28 @@ class AITestingAgent:
     """
     Autonomous AI agent for test automation.
     Uses Claude API for intelligent test generation and analysis.
-    Supports tier-based licensing (Free, Pro, Team, Enterprise).
+    Falls back to mock AI when no API key is configured.
     """
-    
-    def __init__(self, api_key=None, license_key=None, verbose=True):
+
+    def __init__(self, api_key=None, verbose=True):
         """
         Initialize the AI Testing Agent.
-        
+
         Args:
             api_key: Anthropic API key (or set ANTHROPIC_API_KEY env var)
-            license_key: License key for paid tiers (or set AI_AGENT_LICENSE_KEY env var)
             verbose: Whether to print status messages (default: True)
         """
         self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
-        self.license_key = license_key or os.getenv('AI_AGENT_LICENSE_KEY')
         self.verbose = verbose
 
-        # TESTING MODE: Force pro tier when TESTING_MODE=true
-        # This allows testing with real AI before deploying license server
-        # TODO: Remove TESTING_MODE after testing phase is complete
-        # TODO: Deploy license server for production tier validation
-        testing_mode = os.getenv('TESTING_MODE', 'false').lower() == 'true'
-
-        if testing_mode:
-            self.tier = 'pro'
-            if self.verbose:
-                print("🧪 TESTING MODE: Using pro tier with real Claude API")
-        else:
-            # License validation and tier management
-            self.tier = self._validate_license()
-        
         # Initialize analytics (privacy-first, opt-out supported)
         self.analytics = None
         if ANALYTICS_AVAILABLE:
-            self.analytics = Analytics(license_key=self.license_key, tier=self.tier)
+            self.analytics = Analytics()
             # Show first-run message if appropriate
             self.analytics.show_first_run_message()
             # Track tool startup
-            self.analytics.track_tool_started(self.tier)
-        
-        # Define tier-based limits
-        self.limits = {
-            'free': {
-                'endpoints': 10,
-                'monthly_runs': 50,
-                'description': 'Basic testing features'
-            },
-            'pro': {
-                'endpoints': 100,
-                'monthly_runs': float('inf'),
-                'description': 'Advanced testing with unlimited runs'
-            },
-            'team': {
-                'endpoints': 500,
-                'monthly_runs': float('inf'),
-                'description': 'Team collaboration features'
-            },
-            'enterprise': {
-                'endpoints': float('inf'),
-                'monthly_runs': float('inf'),
-                'description': 'Unlimited enterprise features'
-            }
-        }
+            self.analytics.track_tool_started()
         
         # Initialize state
         self.state = {
@@ -121,16 +74,14 @@ class AITestingAgent:
             'generated_code': [],
             'test_results': [],
             'current_phase': 'initialized',
-            'tier': self.tier,
             'usage': {
-                'runs_this_month': 0,
                 'endpoints_tested': 0,
                 'api_calls': 0,
                 'tokens_used': 0,
                 'estimated_cost': 0.0
             }
         }
-        
+
         # Initialize comprehensive usage tracking
         self.usage_stats = {
             'session_start': datetime.now(),
@@ -140,7 +91,6 @@ class AITestingAgent:
             'estimated_cost': 0.0,
             'endpoints_processed': 0,
             'tests_generated': 0,
-            'tier': self.tier
         }
         
         # Initialize mock response counter for variety
@@ -148,158 +98,7 @@ class AITestingAgent:
         
         self.output_dir = Path('test_output')
         self.output_dir.mkdir(exist_ok=True)
-        
-        # Print tier information
-        self._print_tier_info()
     
-    def _validate_license(self) -> str:
-        """
-        Validate license key and return tier.
-        
-        Makes an API call to validate the license key against the licensing server.
-        If validation fails or no license key provided, defaults to 'free' tier.
-        
-        Returns:
-            str: Tier level ('free', 'pro', 'team', or 'enterprise')
-        """
-        # No license key provided - use free tier
-        if not self.license_key:
-            return 'free'
-        
-        # requests library not available - cannot validate
-        if not REQUESTS_AVAILABLE:
-            print("⚠️  Warning: requests library not available for license validation")
-            print("   Defaulting to 'free' tier. Install requests: pip install requests")
-            return 'free'
-        
-        try:
-            # Attempt to validate license with API
-            validation_url = "https://api.yourdomain.com/v1/validate-license"
-            payload = {"license_key": self.license_key}
-            
-            # Set timeout to avoid hanging
-            response = requests.post(
-                validation_url,
-                json=payload,
-                timeout=5,
-                headers={'Content-Type': 'application/json'}
-            )
-            
-            # Check if request was successful
-            if response.status_code == 200:
-                data = response.json()
-                
-                # Validate response structure
-                if 'tier' in data and data['tier'] in ['free', 'pro', 'team', 'enterprise']:
-                    tier = data['tier']
-                    print(f"✅ License validated: {tier.upper()} tier")
-                    return tier
-                else:
-                    print("⚠️  Warning: Invalid response from license server")
-                    print("   Defaulting to 'free' tier")
-                    return 'free'
-            
-            elif response.status_code == 401 or response.status_code == 403:
-                print("⚠️  Warning: Invalid or expired license key")
-                print("   Defaulting to 'free' tier")
-                return 'free'
-            
-            else:
-                print(f"⚠️  Warning: License validation failed (Status {response.status_code})")
-                print("   Defaulting to 'free' tier")
-                return 'free'
-        
-        except requests.exceptions.Timeout:
-            print("⚠️  Warning: License validation timed out")
-            print("   Defaulting to 'free' tier - check your network connection")
-            return 'free'
-        
-        except requests.exceptions.ConnectionError:
-            print("⚠️  Warning: Cannot connect to license server")
-            print("   Defaulting to 'free' tier - check your network connection")
-            return 'free'
-        
-        except requests.exceptions.RequestException as e:
-            print(f"⚠️  Warning: License validation error: {str(e)}")
-            print("   Defaulting to 'free' tier")
-            return 'free'
-        
-        except Exception as e:
-            print(f"⚠️  Warning: Unexpected error during license validation: {str(e)}")
-            print("   Defaulting to 'free' tier")
-            return 'free'
-    
-    def _print_tier_info(self):
-        """
-        Print current tier information and features.
-        
-        Displays the active tier, its limits, and upgrade information
-        for users on the free tier.
-        """
-        tier_upper = self.tier.upper()
-        limits = self.limits[self.tier]
-        
-        print("\n" + "=" * 60)
-        print(f"🎯 LICENSE TIER: {tier_upper}")
-        print("=" * 60)
-        
-        # Display current tier features
-        print(f"📦 Plan: {limits['description']}")
-        
-        # Format endpoint limit
-        if limits['endpoints'] == float('inf'):
-            endpoint_str = "Unlimited"
-        else:
-            endpoint_str = str(limits['endpoints'])
-        
-        # Format monthly runs limit
-        if limits['monthly_runs'] == float('inf'):
-            runs_str = "Unlimited"
-        else:
-            runs_str = str(limits['monthly_runs'])
-        
-        print(f"📊 Limits:")
-        print(f"   • API Endpoints: {endpoint_str}")
-        print(f"   • Monthly Runs: {runs_str}")
-        
-        # Show tier-specific features
-        if self.tier == 'free':
-            print(f"\n💡 FREE TIER FEATURES:")
-            print(f"   ✓ Basic test generation")
-            print(f"   ✓ HTML/JSON/Markdown reports")
-            print(f"   ✓ Mock AI responses")
-            print(f"\n🚀 UPGRADE TO PRO FOR:")
-            print(f"   • Unlimited test runs")
-            print(f"   • 10x more endpoints (100)")
-            print(f"   • Priority support")
-            print(f"   • Advanced AI features")
-            print(f"\n   Visit: https://yourdomain.com/pricing")
-        
-        elif self.tier == 'pro':
-            print(f"\n✨ PRO TIER FEATURES:")
-            print(f"   ✓ Unlimited test runs")
-            print(f"   ✓ 100 API endpoints")
-            print(f"   ✓ Priority support")
-            print(f"   ✓ Advanced AI analysis")
-            print(f"   ✓ Custom report templates")
-        
-        elif self.tier == 'team':
-            print(f"\n👥 TEAM TIER FEATURES:")
-            print(f"   ✓ All Pro features")
-            print(f"   ✓ 500 API endpoints")
-            print(f"   ✓ Team collaboration")
-            print(f"   ✓ Shared test libraries")
-            print(f"   ✓ Role-based access control")
-        
-        elif self.tier == 'enterprise':
-            print(f"\n🏢 ENTERPRISE TIER FEATURES:")
-            print(f"   ✓ Unlimited everything")
-            print(f"   ✓ Dedicated support")
-            print(f"   ✓ Custom integrations")
-            print(f"   ✓ SLA guarantees")
-            print(f"   ✓ On-premise deployment")
-        
-        print("=" * 60 + "\n")
         
     def _track_usage(self, api_response):
         """
@@ -417,7 +216,6 @@ class AITestingAgent:
         print("\n" + "="*60)
         print("📊 Usage Summary")
         print("="*60)
-        print(f"Tier: {stats['tier'].upper()}")
         print(f"Endpoints processed: {stats['endpoints_processed']}")
         print(f"Tests generated: {stats['tests_generated']}")
         print(f"API calls: {stats['api_calls']}")
@@ -445,321 +243,6 @@ class AITestingAgent:
         
         print("="*60)
     
-    def _check_endpoint_limit(self, endpoint_count: int):
-        """
-        Check if endpoint count exceeds tier limit.
-        
-        Enforces tier-based endpoint limits to ensure users stay within their plan.
-        Provides clear upgrade paths when limits are exceeded.
-        
-        Args:
-            endpoint_count: Number of endpoints to process
-            
-        Raises:
-            Exception: If limit exceeded with detailed upgrade message
-        """
-        # Get maximum allowed endpoints for current tier
-        max_endpoints = self.limits[self.tier]['endpoints']
-        
-        # If unlimited (infinity), no check needed
-        if max_endpoints == float('inf'):
-            return
-        
-        # Check if requested count exceeds limit
-        if endpoint_count > max_endpoints:
-            # Generate tier-specific upgrade message
-            upgrade_messages = {
-                'free': (
-                    "🚀 UPGRADE TO PRO:\n"
-                    "   • 100 endpoints (10x more!)\n"
-                    "   • Unlimited test runs\n"
-                    "   • Real Claude AI\n"
-                    "   • Priority support\n"
-                    "   • Only Coming soon\n"
-                ),
-                'pro': (
-                    "🚀 UPGRADE TO TEAM:\n"
-                    "   • 500 endpoints (5x more!)\n"
-                    "   • Team collaboration\n"
-                    "   • Shared test libraries\n"
-                    "   • Role-based access\n"
-                    "   • Only Coming soon\n"
-                ),
-                'team': (
-                    "🚀 UPGRADE TO ENTERPRISE:\n"
-                    "   • UNLIMITED endpoints\n"
-                    "   • Dedicated support\n"
-                    "   • Custom integrations\n"
-                    "   • SLA guarantees\n"
-                    "   • On-premise deployment\n"
-                    "   • Contact sales for pricing\n"
-                )
-            }
-            
-            upgrade_msg = upgrade_messages.get(self.tier, "Upgrade for more endpoints")
-            
-            # Track upgrade prompt shown
-            if self.analytics:
-                next_tier = {'free': 'pro', 'pro': 'team', 'team': 'enterprise'}.get(self.tier, 'enterprise')
-                self.analytics.track_upgrade_prompt_shown(
-                    from_tier=self.tier,
-                    to_tier=next_tier,
-                    reason="endpoint_limit"
-                )
-            
-            # Create detailed error message
-            error_message = f"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║  ❌ ENDPOINT LIMIT EXCEEDED                                              
-╚══════════════════════════════════════════════════════════════════════════╝
-
-Current Tier: {self.tier.upper()}
-Your Limit:   {max_endpoints} endpoints
-Requested:    {endpoint_count} endpoints
-Over Limit:   {endpoint_count - max_endpoints} endpoints
-
-{upgrade_msg}
-📚 View all plans: https://yourdomain.com/pricing
-💬 Contact sales: sales@yourdomain.com
-
-💡 TIP: You can process your endpoints in smaller batches to stay within
-   your current limit, or upgrade for more capacity.
-"""
-            raise Exception(error_message)
-    
-    def _load_monthly_usage(self) -> Dict:
-        """
-        Load usage database and reset if new month.
-        
-        Returns:
-            Usage dictionary with current month data
-        """
-        try:
-            # Create directory if it doesn't exist
-            usage_dir = Path.home() / '.ai-testing-agent'
-            usage_dir.mkdir(exist_ok=True)
-            
-            usage_file = usage_dir / 'usage_db.json'
-            
-            # Get current month in YYYY-MM format
-            current_month = datetime.now().strftime('%Y-%m')
-            
-            # Try to load existing usage data
-            if usage_file.exists():
-                with open(usage_file, 'r') as f:
-                    usage_data = json.load(f)
-                
-                # Check if it's a new month
-                if usage_data.get('month') != current_month:
-                    # Reset counters for new month
-                    usage_data = {
-                        'month': current_month,
-                        'runs_this_month': 0,
-                        'endpoints_this_month': 0,
-                        'cost_this_month': 0.0,
-                        'license_key': self.license_key or ''
-                    }
-                    # Save the reset data
-                    self._save_usage_data(usage_data)
-                
-                return usage_data
-            else:
-                # Create new usage database
-                usage_data = {
-                    'month': current_month,
-                    'runs_this_month': 0,
-                    'endpoints_this_month': 0,
-                    'cost_this_month': 0.0,
-                    'license_key': self.license_key or ''
-                }
-                # Save initial data
-                self._save_usage_data(usage_data)
-                return usage_data
-        
-        except Exception as e:
-            # If loading fails, return a default structure and warn
-            print(f"  ⚠️  Warning: Could not load usage database: {e}")
-            print(f"  ℹ️  Creating fresh usage tracking data")
-            return {
-                'month': datetime.now().strftime('%Y-%m'),
-                'runs_this_month': 0,
-                'endpoints_this_month': 0,
-                'cost_this_month': 0.0,
-                'license_key': self.license_key or ''
-            }
-    
-    def _save_usage_data(self, usage_data: Dict):
-        """
-        Save usage data atomically using temp file + rename.
-        
-        Args:
-            usage_data: Usage dictionary to save
-        """
-        try:
-            usage_dir = Path.home() / '.ai-testing-agent'
-            usage_dir.mkdir(exist_ok=True)
-            
-            usage_file = usage_dir / 'usage_db.json'
-            
-            # Write to temporary file first
-            with tempfile.NamedTemporaryFile(
-                mode='w',
-                dir=usage_dir,
-                delete=False,
-                suffix='.tmp'
-            ) as tmp_file:
-                json.dump(usage_data, tmp_file, indent=2)
-                tmp_path = tmp_file.name
-            
-            # Atomic rename
-            shutil.move(tmp_path, str(usage_file))
-            
-        except Exception as e:
-            # Don't fail the whole operation if saving fails
-            print(f"  ⚠️  Warning: Could not save usage data: {e}")
-    
-    def _save_monthly_usage(self, increment_runs: int = 1, increment_endpoints: int = 0, increment_cost: float = 0.0):
-        """
-        Increment and save monthly usage counters.
-        
-        Args:
-            increment_runs: Number of runs to add (default: 1)
-            increment_endpoints: Number of endpoints to add (default: 0)
-            increment_cost: Cost to add (default: 0.0)
-        """
-        try:
-            # Load current usage
-            usage_data = self._load_monthly_usage()
-            
-            # Increment counters
-            usage_data['runs_this_month'] += increment_runs
-            usage_data['endpoints_this_month'] += increment_endpoints
-            usage_data['cost_this_month'] += increment_cost
-            usage_data['license_key'] = self.license_key or ''
-            
-            # Save atomically
-            self._save_usage_data(usage_data)
-            
-        except Exception as e:
-            # Don't fail on tracking errors
-            print(f"  ⚠️  Warning: Could not update monthly usage: {e}")
-    
-    def _check_monthly_limits(self):
-        """
-        Check if monthly limits exceeded.
-        
-        Raises:
-            Exception: If monthly limit exceeded with upgrade message
-        """
-        # Load current usage
-        usage_data = self._load_monthly_usage()
-        runs_used = usage_data.get('runs_this_month', 0)
-        
-        # Get limit for current tier
-        monthly_limit = self.limits[self.tier]['monthly_runs']
-        
-        # If unlimited, no check needed
-        if monthly_limit == float('inf'):
-            return
-        
-        # Calculate percentage used
-        usage_percent = (runs_used / monthly_limit) * 100 if monthly_limit > 0 else 0
-        
-        # Warning at 80%
-        if usage_percent >= 80 and usage_percent < 90:
-            print(f"\n⚠️  You've used {usage_percent:.0f}% of your monthly quota ({runs_used}/{monthly_limit} runs)")
-            print(f"💡 Upgrade to Pro for unlimited runs: https://yourdomain.com/pricing\n")
-        
-        # Strong warning at 90%
-        elif usage_percent >= 90 and usage_percent < 100:
-            print(f"\n🚨 You've used {usage_percent:.0f}% of your monthly quota ({runs_used}/{monthly_limit} runs)")
-            print(f"🚀 Upgrade now to avoid interruption: https://yourdomain.com/pricing\n")
-        
-        # Block at 100%
-        if runs_used >= monthly_limit:
-            # Calculate days until reset
-            now = datetime.now()
-            next_month = datetime(now.year + (now.month // 12), (now.month % 12) + 1, 1)
-            days_until_reset = (next_month - now).days
-            
-            # Track upgrade prompt for monthly limit
-            if self.analytics:
-                next_tier = {'free': 'pro', 'pro': 'team', 'team': 'enterprise'}.get(self.tier, 'enterprise')
-                self.analytics.track_upgrade_prompt_shown(
-                    from_tier=self.tier,
-                    to_tier=next_tier,
-                    reason="monthly_limit"
-                )
-            
-            error_message = f"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║  ❌ MONTHLY LIMIT REACHED                                                
-╚══════════════════════════════════════════════════════════════════════════╝
-
-Current Tier: {self.tier.upper()}
-Monthly Limit: {monthly_limit} runs
-Runs Used:     {runs_used} runs
-Status:        LIMIT EXCEEDED
-
-Your monthly quota has been exhausted. You have two options:
-
-🚀 OPTION 1: UPGRADE NOW (Recommended)
-   • Get UNLIMITED runs immediately
-   • Never worry about limits again
-   • Real Claude AI (much smarter)
-   • Only Coming soon
-   
-   Upgrade: https://yourdomain.com/pricing
-
-⏰ OPTION 2: WAIT FOR RESET
-   • Your quota resets in {days_until_reset} days
-   • Next reset: {next_month.strftime('%B 1, %Y')}
-   
-💬 Questions? Contact sales@yourdomain.com
-"""
-            raise Exception(error_message)
-    
-    def get_monthly_usage_stats(self) -> Dict:
-        """
-        Get monthly usage statistics for CLI display.
-        
-        Returns:
-            Dictionary with current month usage data
-        """
-        usage_data = self._load_monthly_usage()
-        
-        # Get limits for current tier
-        monthly_limit = self.limits[self.tier]['monthly_runs']
-        endpoint_limit = self.limits[self.tier]['endpoints']
-        
-        # Calculate days until reset
-        now = datetime.now()
-        next_month = datetime(now.year + (now.month // 12), (now.month % 12) + 1, 1)
-        days_until_reset = (next_month - now).days
-        
-        # Format limits
-        monthly_limit_str = "Unlimited" if monthly_limit == float('inf') else str(int(monthly_limit))
-        endpoint_limit_str = "Unlimited" if endpoint_limit == float('inf') else str(int(endpoint_limit))
-        
-        # Calculate usage percentage for runs
-        runs_used = usage_data.get('runs_this_month', 0)
-        if monthly_limit == float('inf'):
-            runs_percent = 0
-        else:
-            runs_percent = (runs_used / monthly_limit * 100) if monthly_limit > 0 else 0
-        
-        return {
-            'month': usage_data.get('month', 'Unknown'),
-            'tier': self.tier,
-            'runs_used': runs_used,
-            'runs_limit': monthly_limit_str,
-            'runs_percent': runs_percent,
-            'endpoints_this_month': usage_data.get('endpoints_this_month', 0),
-            'endpoint_limit': endpoint_limit_str,
-            'cost_this_month': usage_data.get('cost_this_month', 0.0),
-            'days_until_reset': days_until_reset,
-            'reset_date': next_month.strftime('%B 1, %Y')
-        }
     
     def parse_requirements(self, requirements_text: str) -> Dict:
         """
@@ -818,11 +301,6 @@ Return a JSON structure with these fields."""
             # Estimate from features in requirements
             features = requirements.get('features', [])
             endpoint_count = len(features)
-        
-        # Check if endpoint count is within tier limits
-        if endpoint_count > 0:
-            self._check_endpoint_limit(endpoint_count)
-            print(f"✓ Endpoint limit check passed ({endpoint_count}/{self.limits[self.tier]['endpoints']})")
         
         prompt = f"""Based on these requirements, generate comprehensive test cases.
 
@@ -1142,8 +620,6 @@ Provide actionable insights."""
         print(f"   Base URL: {base_url or '(not specified)'}")
         print(f"   Endpoints: {len(endpoints)}")
 
-        # Enforce tier endpoint limit
-        self._check_endpoint_limit(len(endpoints))
 
         # ── Compliance setup ──────────────────────────────────────────────────
         comp_config = None
@@ -1241,11 +717,6 @@ Provide actionable insights."""
             with open(md_path, "w", encoding="utf-8") as fh:
                 fh.write(reporter.generate_markdown(coverage_data, comp_config))
             print(f"   ✓ Compliance report → {md_path}")
-
-        self._save_monthly_usage(
-            increment_runs=1,
-            increment_endpoints=len(endpoints),
-        )
 
         print(f"\n✅ Spec ingestion complete — {len(generated_files)} file(s) written to {out}/")
         return {
@@ -1455,9 +926,6 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
         execution_start = time.time()
         
         try:
-            # Check monthly limits before starting
-            self._check_monthly_limits()
-            
             # Phase 1: Parse requirements
             requirements = self.parse_requirements(requirements_text)
             
@@ -1466,10 +934,6 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
                 features = requirements.get('features', [])
                 endpoint_count = len(features)
                 print(f"📊 Detected {endpoint_count} endpoints from requirements")
-            
-            # Check endpoint limits before processing
-            self._check_endpoint_limit(endpoint_count)
-            print(f"✓ Endpoint limit check passed ({endpoint_count}/{self.limits[self.tier]['endpoints']})")
             
             # Update usage tracking
             self.state['usage']['endpoints_tested'] = endpoint_count
@@ -1507,13 +971,6 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
             # Save usage to log file
             self._save_usage_log()
             
-            # Save monthly usage (increment run counter and track endpoints/cost)
-            self._save_monthly_usage(
-                increment_runs=1,
-                increment_endpoints=endpoint_count,
-                increment_cost=self.usage_stats['estimated_cost']
-            )
-            
             # Track successful completion in analytics
             execution_duration = time.time() - execution_start
             if self.analytics:
@@ -1522,11 +979,6 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
                     tests_generated=len(test_cases),
                     duration_seconds=execution_duration,
                     success=True
-                )
-                self.analytics.track_tier_usage(
-                    tier=self.tier,
-                    endpoints_used=endpoint_count,
-                    tests_generated=len(test_cases)
                 )
             
             return {
@@ -1614,65 +1066,21 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
 
     def _call_ai(self, prompt: str) -> str:
         """
-        Route AI calls between mock and real API based on tier.
-        
-        Routing Logic:
-        - Free tier: Always uses mock AI responses
-        - Pro/Team/Enterprise: Uses real Claude API if available
-        
+        Call Claude API if an API key is configured, otherwise use mock AI.
+
         Args:
             prompt: Prompt for the AI
-            
+
         Returns:
             AI response as string or structured data
         """
-        # Free tier always uses mock AI
-        if self.tier == 'free':
-            print("ℹ️  Using mock AI (Free tier)")
-            print("💡 Upgrade to Pro for real Claude AI: https://yourdomain.com/pricing")
-            return self._mock_ai_response(prompt)
-        
-        # Paid tiers (Pro, Team, Enterprise) attempt to use real API
-        if self.tier in ['pro', 'team', 'enterprise']:
-            # Check if API key is available
-            if not self.api_key:
-                error_msg = f"""
-╔══════════════════════════════════════════════════════════════════════════╗
-║  ❌ ERROR: No API Key Found ({self.tier.upper()} Tier)                       
-╚══════════════════════════════════════════════════════════════════════════╝
-
-You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
-
-🔧 To fix this, set your API key using one of these methods:
-
-   1. Environment Variable (Recommended):
-      export ANTHROPIC_API_KEY="your-api-key-here"
-   
-   2. Pass to Constructor:
-      agent = AITestingAgent(api_key="your-api-key-here")
-   
-   3. Create .env file in project root:
-      ANTHROPIC_API_KEY=your-api-key-here
-
-📚 Get your API key:
-   → Visit: https://console.anthropic.com/account/keys
-   → Documentation: https://docs.anthropic.com/claude/reference/getting-started
-
-💡 For now, falling back to mock AI responses...
-"""
-                print(error_msg)
-                return self._mock_ai_response(prompt)
-            
-            # Try to call the real Claude API
+        if self.api_key and ANTHROPIC_AVAILABLE:
             try:
-                response = self._call_claude_api(prompt)
-                print("✅ Using real Claude AI")
-                return response
+                return self._call_claude_api(prompt)
             except Exception as e:
                 print(f"⚠️  API error: {str(e)[:100]}. Using mock fallback.")
                 return self._mock_ai_response(prompt)
-        
-        # Default fallback
+
         return self._mock_ai_response(prompt)
     
     def _call_claude_api(self, prompt: str) -> str:
@@ -1877,7 +1285,7 @@ You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
             f"Tests for {tag} endpoints — generated from OpenAPI spec",
             f"API: {api_title}",
             f"",
-            f"NOTE: This is a mock output (free tier).",
+            f"NOTE: This is a mock output (no API key configured).",
             f"      Set ANTHROPIC_API_KEY to generate Claude-powered tests.",
             f'"""',
             "import pytest",
@@ -2049,7 +1457,7 @@ You're on the {self.tier.upper()} tier, but no Anthropic API key is configured.
         # Add random variation to make responses feel more natural
         random.seed(self._mock_call_count)
         
-        print("  🎭 Generating mock AI response (Free tier - limited intelligence)")
+        print("  🎭 Generating mock AI response (set ANTHROPIC_API_KEY for real Claude)")
         print("  ⚠️  Mock responses are simplified and may not reflect production quality")
         
         # Detect prompt type and return appropriate mock data
@@ -2242,14 +1650,9 @@ def test_{test_id.lower()}_parametrized(input, expected):
                 '_note': 'Generic mock response - Real AI provides contextual, intelligent answers.',
                 'response': 'This is a simplified mock AI response.',
                 'quality': 'basic',
-                'upgrade_message': (
-                    'Free tier uses mock AI with limited capabilities. '
-                    'Upgrade to Pro for real Claude AI with advanced intelligence, '
-                    'context awareness, and production-quality outputs.'
-                ),
+                'note': 'Mock AI has limited capabilities. Set ANTHROPIC_API_KEY for real Claude.',
                 'data': {
                     'call_number': self._mock_call_count,
-                    'tier': 'free',
                     'mock_mode': True
                 }
             }

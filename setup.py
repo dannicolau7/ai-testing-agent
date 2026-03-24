@@ -12,12 +12,12 @@ long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists
 setup(
     name="ai-testing-agent",
     version="1.0.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="dan.nicolau7",
+    author_email="dan.nicolau7@gmail.com",
     description="Autonomous AI agent for test automation using pytest",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/ai-testing-agent",
+    url="https://github.com/dannicolau7/ai-testing-agent",
     py_modules=["ai_testing_agent", "cli"],
     python_requires=">=3.8",
     install_requires=[
@@ -57,8 +57,7 @@ setup(
     ],
     keywords="testing automation ai pytest agent",
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/ai-testing-agent/issues",
-        "Source": "https://github.com/yourusername/ai-testing-agent",
-        "Documentation": "https://ai-testing-agent.readthedocs.io",
+        "Bug Reports": "https://github.com/dannicolau7/ai-testing-agent/issues",
+        "Source": "https://github.com/dannicolau7/ai-testing-agent",
     },
 )

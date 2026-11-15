@@ -939,7 +939,16 @@ def cmd_audit(args):
         waiting = len(loaded) - len(links)
         if waiting:
             notes.append(f"{waiting} proposed link(s) are not confirmed and were not used")
-    report = app_audit.audit(app_audit.build_model(args.path), requirements, links, notes)
+    policy = None
+    if args.permissions:
+        import permissions
+
+        try:
+            policy = permissions.load(Path(args.permissions).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read permissions file: {exc}")
+            sys.exit(2)
+    report = app_audit.audit(app_audit.build_model(args.path), requirements, links, notes, policy)
     markdown = app_audit.render_markdown(report)
     if args.output:
         Path(args.output).write_text(markdown, encoding='utf-8')
@@ -988,6 +997,42 @@ def cmd_link(args):
     linked = len([x for x in links if x.routes or x.checks])
     print(f"Proposed links for {linked} of {len(links)} requirement(s) → {args.output}")
     print("Nothing is used until you confirm it: open the file and set `confirmed: true` on the right ones.")
+
+
+def cmd_permissions(args):
+    """The table of who may do what: start one from the code, or write a test for every cell."""
+    import app_audit
+    import permissions
+
+    if args.init:
+        if not args.path or not Path(args.path).is_dir():
+            print("❌ --init needs the application folder: permissions <folder> --init")
+            sys.exit(2)
+        roles = [r.strip() for r in args.roles.split(",") if r.strip()]
+        text = permissions.draft(app_audit.build_model(args.path), roles)
+        Path(args.output or 'permissions.yaml').write_text(text, encoding='utf-8')
+        print(f"Draft permissions table → {args.output or 'permissions.yaml'}")
+        print("It describes what the code appears to do today. Correct it to what the product should do.")
+        return
+    if not args.tests:
+        print("❌ Say what to do: --init to start a table from the code, or --tests FILE to write tests from one.")
+        sys.exit(2)
+    try:
+        policy = permissions.load(Path(args.tests).read_text(encoding='utf-8'))
+    except OSError as exc:
+        print(f"❌ Cannot read permissions file: {exc}")
+        sys.exit(2)
+    if policy.problems or not policy.rules:
+        for problem in policy.problems or ["the file has no rules"]:
+            print(f"❌ {problem}")
+        sys.exit(2)
+    output = args.output or 'test_permissions_generated.py'
+    Path(output).write_text(permissions.tests(policy), encoding='utf-8')
+    cells = len(policy.rules) * len(policy.roles)
+    refused = sum(len(policy.roles) - len(rule.allow) for rule in policy.rules)
+    print(f"{cells} permission tests ({refused} of them refusals) → {output}")
+    print("Run them against a TEST environment only: they send real requests.")
+    print("  PERMISSIONS_BASE_URL=http://localhost:8000 ROLE_<NAME>_TOKEN=... pytest " + output)
 
 
 def cmd_trace(args):
@@ -1435,6 +1480,8 @@ Examples:
     )
     audit_parser.add_argument('path', help='Root directory of the application source')
     audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    audit_parser.add_argument('--permissions', '-p',
+                              help='Permissions table (roles against routes); also check the code against it')
     audit_parser.add_argument('--links',
                               help='Links file from the `link` command; only confirmed links are used')
     audit_parser.add_argument('--requirements', '-r',
@@ -1449,6 +1496,17 @@ Examples:
     link_parser.add_argument('--requirements', '-r', required=True, help='Requirements file')
     link_parser.add_argument('--output', '-o', default='requirement-links.yaml',
                              help='Where to write the proposed links (default: requirement-links.yaml)')
+
+    # Roles against actions (roadmap stage 6)
+    perm_parser = subparsers.add_parser(
+        'permissions',
+        help='Who may do what: start a permissions table from the code, or write a test for every cell'
+    )
+    perm_parser.add_argument('path', nargs='?', help='Root directory of the application source (for --init)')
+    perm_parser.add_argument('--init', action='store_true', help='Write a draft table from what the code does today')
+    perm_parser.add_argument('--roles', default='user,admin', help='Signed-in roles for --init (default: user,admin)')
+    perm_parser.add_argument('--tests', metavar='PERMISSIONS_FILE', help='Write one pytest test per role and route')
+    perm_parser.add_argument('--output', '-o', help='Output file')
 
     # Traceability (roadmap stage 2)
     trace_parser = subparsers.add_parser(
@@ -1511,6 +1569,8 @@ Examples:
         cmd_audit(args)
     elif args.command == 'link':
         cmd_link(args)
+    elif args.command == 'permissions':
+        cmd_permissions(args)
     elif args.command == 'trace':
         cmd_trace(args)
     elif args.command == 'validate':

@@ -1,0 +1,15 @@
+# Who may do what in the demo application.
+roles: [anonymous, customer, admin]
+rules:
+  - route: GET /api/orders
+    allow: [customer, admin]
+  - route: GET /api/orders/{order_id}
+    allow: [customer, admin]
+    own: true
+  - route: POST /api/orders
+    allow: [customer]
+  - route: DELETE /api/orders/{order_id}
+    allow: [customer, admin]
+    own: true
+  - route: POST /api/admin/reindex
+    allow: [admin]

@@ -131,6 +131,7 @@ class AuditReport:
     findings: List[Finding] = field(default_factory=list)
     not_examined: List[str] = field(default_factory=list)
     requirements: Optional[object] = None  # requirements_audit.RequirementsResult, when requirements were given
+    policy: Optional[object] = None        # permissions.Policy, when a permissions table was given
 
     def of(self, group: str) -> List[Finding]:
         return [f for f in self.findings if f.group == group]
@@ -690,7 +691,7 @@ def _names_a_table(column: str, tables: List[Table]) -> bool:
 
 
 def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[dict] = None,
-          link_notes: Optional[List[str]] = None) -> AuditReport:
+          link_notes: Optional[List[str]] = None, policy=None) -> AuditReport:
     """Compare the layers. With requirements (from traceability.extract_requirements), also
     check what each requirement says against the code it is linked to."""
     report = AuditReport(model=model)
@@ -801,6 +802,24 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
         report.findings += report.requirements.findings
         report.not_examined = [n for n in report.not_examined if not n.startswith("Requirements:")]
         report.not_examined += report.requirements.not_examined
+    if policy is not None:
+        import permissions
+
+        report.policy = policy
+        found = permissions.compare(model, policy)
+        # The table says who must be refused, so its findings replace the general suspicion.
+        ruled = {f"{r.method} {r.path}" for rule in policy.rules for r in model.routes if _match(rule.key, {r.key})}
+        report.findings = [f for f in report.findings if not (
+            f.title.endswith("changes data and shows no access check") and f.title.split(" changes data")[0] in ruled)]
+        own_titles = {f.where for f in found if "does not check who owns the row" in f.title}
+        report.findings = [f for f in report.findings if not (
+            "without checking who owns the row" in f.title and f.where in own_titles)]
+        report.findings += found
+        report.not_examined.append(
+            "Permissions are judged from names on the route and in its handler. Run the generated "
+            "permission tests against a test environment for proof.")
+    else:
+        report.not_examined.append("Permissions: no table was given. Pass --permissions to check who may do what.")
     order = {"wrong_now": 0, "likely": 1, "unclear": 2}
     report.findings.sort(key=lambda f: order.get(f.group, 3))   # stable: keeps the order within a group
     return report
@@ -856,6 +875,10 @@ def render_markdown(report: AuditReport) -> str:
         for row in report.requirements.rows:
             lines.append(f"| {row.id} | {row.linked_to or 'nothing'} | {row.checked or 'nothing'} | {row.result} |")
         lines.append("")
+    if report.policy is not None:
+        import permissions
+
+        lines += permissions.table_markdown(m, report.policy)
     for key, title, meaning in _GROUPS:
         items = report.of(key)
         lines += [f"## {title} ({len(items)})", "", meaning, ""]

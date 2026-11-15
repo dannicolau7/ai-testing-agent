@@ -37,7 +37,7 @@ audit tool that overstates what it checked is worse than no tool.
 | Link from a requirement to its tests | Works: `python cli.py trace` (not yet to the code) |
 | Proof that a test can fail | Works for tests that call the system through `requests`: `python cli.py validate` |
 | Database | Reads SQL and SQLAlchemy tables; checks keys only. Migrations not read |
-| Permissions (who may do what) | Detects a visible access check and a missing ownership check; no model of roles |
+| Permissions (who may do what) | A table of roles against routes, compared with the code; one generated test per cell |
 | Frontend | Reads `fetch` and `axios` calls from source; no browser |
 | Re-checking on change | Missing |
 
@@ -131,8 +131,7 @@ variables, query builders, Django, and JavaScript backends are not read. Shapes 
 field names only, not types, and not what the frontend reads from a response. The
 requirements check matches wording with fixed patterns, so it covers four kinds of
 statement and has not been tried on a real requirements document. Model-proposed links are measured on nine made-up requirements only, with one small
-model; a stronger model has not been tried. Next: Stage 6, the table of roles against
-actions.
+model; a stronger model has not been tried.
 
 Go beyond route decorators: which handler reads and writes which data, which checks run
 before it, what it returns on each path. Store this as a model the later stages query, so a
@@ -144,7 +143,20 @@ line.
 Read the schema and the migrations. Check that what the requirements say must be unique,
 required or linked is actually enforced, and that tests cover the constraints.
 
-### Stage 6: permissions
+### Stage 6: permissions (first version done)
+
+Built (`permissions.py`): a permissions table in a small YAML file (roles, and for each
+route who is allowed and whether only the owner's rows). `permissions --init` drafts one
+from the code as it is. `audit --permissions` compares the code with the table.
+`permissions --tests` writes one test for every cell, refusals included; in this project's
+own tests the generated tests are run against a small live application with a planted hole
+and catch it.
+
+Still to do: the table comes from a person, not yet from the requirements. The comparison
+with code reads names (`require_admin`, `is_admin`), which is evidence, not proof; the
+generated tests are the proof, and they have not been run against a real application. The
+tests use one id for every path parameter, so "own rows only" is not yet tested with two
+users' data.
 
 Build the table of roles against actions from the requirements. Generate a test for every
 cell, including the ones that must be refused. Missing refusals are the most common

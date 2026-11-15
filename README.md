@@ -152,7 +152,12 @@ database tables (SQL `CREATE TABLE` in `.sql` files or Python strings, SQLAlchem
   shows no check.
   For Python backends it also follows each handler to the SQL and SQLAlchemy calls it
   makes, and reports code that uses a table or column the database does not define.
-- **Likely to go wrong:** a route that changes data with no visible access check; a row
+  For FastAPI backends it compares request bodies, query parameters and responses: a field
+  the backend requires that the frontend does not send or the spec does not list, and a
+  response field the spec promises that the backend does not return. Frontend bodies are
+  read from object literals and from TypeScript types.
+- **Likely to go wrong:** a field the frontend sends or the spec lists that the backend
+  ignores; a response field the spec does not mention; a route that changes data with no visible access check; a row
   fetched by id with no sign that the caller owns it; SQL built by inserting a function
   argument into the text; a GET that changes data; a route missing from the spec; a table with no primary
   key; an `_id` column with no foreign key.

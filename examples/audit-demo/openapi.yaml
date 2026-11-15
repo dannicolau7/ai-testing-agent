@@ -2,13 +2,45 @@ openapi: 3.0.3
 info: {title: Orders API (demo), version: "1.0"}
 paths:
   /api/orders:
-    get: {operationId: listOrders, responses: {"200": {description: ok}}}
-    post: {operationId: createOrder, responses: {"201": {description: created}}}
+    get:
+      operationId: listOrders
+      parameters:
+        - {name: sort, in: query, schema: {type: string}}
+      responses: {"200": {description: ok}}
+    post:
+      operationId: createOrder
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: "#/components/schemas/NewOrder"}
+      responses: {"201": {description: created}}
   /api/orders/{orderId}:
-    get: {operationId: getOrder, responses: {"200": {description: ok}}}
+    get:
+      operationId: getOrder
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: {$ref: "#/components/schemas/Order"}
     delete:
       operationId: deleteOrder
       security: [{bearerAuth: []}]
       responses: {"204": {description: deleted}}
   /api/orders/{orderId}/invoice:
     get: {operationId: getInvoice, responses: {"200": {description: ok}}}
+components:
+  schemas:
+    NewOrder:
+      type: object
+      required: [total]
+      properties:
+        total: {type: number}
+        note: {type: string}
+        gift_wrap: {type: boolean}
+    Order:
+      type: object
+      properties:
+        id: {type: integer}
+        total: {type: number}
+        status: {type: string}

@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 import data_access
+import shapes
 
 SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", ".next",
@@ -64,6 +65,8 @@ class Route:
     auth_evidence: List[str] = field(default_factory=list)
     # What the handler reads and writes. None when the handler's code was not followed.
     data: Optional[data_access.HandlerData] = None
+    # The request and response this route declares. None when the source does not state it.
+    shape: Optional[shapes.Shape] = None
 
     @property
     def key(self) -> Tuple[str, str]:
@@ -77,6 +80,7 @@ class ApiCall:
     file: str
     line: int
     raw: str = ""
+    shape: Optional[shapes.Shape] = None
 
     @property
     def key(self) -> Tuple[str, str]:
@@ -291,10 +295,12 @@ def js_calls(source: str, filename: str) -> List[ApiCall]:
     for m in _FETCH.finditer(source):
         url, options = m.group(2), m.group(3) or ""
         method = (_METHOD_OPTION.search(options) or [None, "GET"])[1].upper()
-        calls.append(ApiCall(method, _url_path(url), filename, _line(source, m.start()), url[:80]))
+        calls.append(ApiCall(method, _url_path(url), filename, _line(source, m.start()), url[:80],
+                             shapes.call_shape(source, m.start(), url)))
     for m in _AXIOS.finditer(source):
         calls.append(ApiCall(m.group(1).upper(), _url_path(m.group(3)), filename,
-                             _line(source, m.start()), m.group(3)[:80]))
+                             _line(source, m.start()), m.group(3)[:80],
+                             shapes.call_shape(source, m.start(), m.group(3), m.group(1))))
     for m in _FETCH_DYNAMIC.finditer(source):
         calls.append(ApiCall("?", "", filename, _line(source, m.start()), m.group(1)[:80]))
     return calls
@@ -333,7 +339,8 @@ def spec_operations(path: Path, root: Path) -> List[Route]:
                 security = item[method].get("security", spec.get("security"))
                 evidence = ["security in the spec"] if security else []
                 operations.append(Route(method.upper(), base + str(route_path), rel, 0,
-                                        str(item[method].get("operationId", "")), evidence))
+                                        str(item[method].get("operationId", "")), evidence,
+                                        shape=shapes.operation_shape(item[method], item, spec)))
     return operations
 
 
@@ -448,6 +455,7 @@ def sqlalchemy_tables(source: str, filename: str) -> List[Table]:
 def _attach_handler_data(model: AppModel, trees: List[Tuple[str, ast.AST]]) -> None:
     """Follow each Python handler into the code it calls and record its data access."""
     index = data_access.index_functions(trees)
+    models = shapes.pydantic_models(trees)
     by_place = {}
     for file, tree in trees:
         for node in ast.walk(tree):
@@ -457,6 +465,7 @@ def _attach_handler_data(model: AppModel, trees: List[Tuple[str, ast.AST]]) -> N
         node = by_place.get((route.file, route.line, route.handler))
         if node is not None:
             route.data = data_access.handler_data(node, route.file, index)
+            route.shape = shapes.handler_shape(node, route.path, models)
 
 
 def build_model(root_path: str) -> AppModel:
@@ -483,13 +492,19 @@ def build_model(root_path: str) -> AppModel:
                     table.line += node.lineno - 1
                     model.tables.append(table)
     _attach_handler_data(model, trees)
+    types: Dict[str, Tuple[Dict[str, bool], bool]] = {}
     for path in _files(root, (".js", ".jsx", ".ts", ".tsx", ".mjs", ".vue", ".svelte"), model):
         source, rel = _read(path), str(path.relative_to(root))
+        if path.suffix.lower() in (".ts", ".tsx", ".vue", ".svelte"):
+            for name, value in shapes.ts_types(source).items():
+                # Two different types of one name: the body cannot be told, so neither is used.
+                types[name] = value if name not in types or types[name] == value else ({}, True)
         if re.search(r"\.(test|spec)\.[jt]sx?$", path.name):
             continue
         model.files_read += 1
         model.routes += js_routes(source, rel)
         model.calls += js_calls(source, rel)
+    shapes.resolve_body_types([c.shape for c in model.calls if c.shape], types)
     for path in _files(root, (".sql",), model):
         model.files_read += 1
         model.tables += sql_tables(_read(path), str(path.relative_to(root)))
@@ -625,6 +640,30 @@ def _audit_data_access(model: AppModel, add) -> None:
                     "It may be used by code this audit did not follow, or it may be unused.", _where(table))
 
 
+def _find(key: Tuple[str, str], routes: List[Route]) -> Optional[Route]:
+    return next((r for r in routes if _match(key, {r.key})), None)
+
+
+def _audit_shapes(model: AppModel, add) -> None:
+    """Request bodies, query parameters and responses, compared between the layers."""
+    for op in model.spec_operations:
+        route = _find(op.key, model.routes)
+        if route is not None and route.shape is not None and op.shape is not None:
+            for f in shapes.compare_spec_to_backend(f"{route.method} {route.path}", op.shape, route.shape, _where(route)):
+                add(f.group, f.title, f.detail, f.where)
+    seen: Set[Tuple[str, str]] = set()
+    for call in model.calls:
+        if not call.path or call.shape is None:
+            continue
+        route = _find(call.key, model.routes)
+        if route is None or route.shape is None:
+            continue
+        for f in shapes.compare_frontend_to_backend(f"{route.method} {route.path}", call.shape, route.shape, _where(call)):
+            if (f.title, f.where) not in seen:
+                seen.add((f.title, f.where))
+                add(f.group, f.title, f.detail, f.where)
+
+
 def _names_a_table(column: str, tables: List[Table]) -> bool:
     """True when an _id column is named after a table: address_id or shipping_address_id → addresses."""
     stem = column.lower()[:-3]
@@ -704,6 +743,7 @@ def audit(model: AppModel) -> AuditReport:
                     "It may serve another client, or it may be dead code.", _where(route))
 
     _audit_data_access(model, add)
+    _audit_shapes(model, add)
 
     # Database structure.
     for table in model.tables:
@@ -725,6 +765,9 @@ def audit(model: AppModel) -> AuditReport:
         "Handler logic beyond data access: for Python handlers this audit follows the code to the "
         "SQL and ORM calls it makes; it does not check conditions, validation or what is returned.",
         "Queries assembled across several variables, and data access in JavaScript backends.",
+        "Request and response shapes that the source does not state: bodies passed as a variable, "
+        "handlers other than FastAPI with Pydantic models, field types, and what the frontend reads "
+        "from a response.",
         "The running application: nothing was started, called or queried.",
         "Requirements: use `trace` to compare requirements with tests.",
         "Access checks applied globally (middleware, gateways) or in languages other than Python and JavaScript/TypeScript.",
@@ -743,6 +786,10 @@ _GROUPS = [
 ]
 
 
+def _shaped(routes: List[Route]) -> int:
+    return len([r for r in routes if r.shape and (r.shape.body is not None or r.shape.query or r.shape.response)])
+
+
 def render_markdown(report: AuditReport) -> str:
     m = report.model
     lines = [
@@ -756,6 +803,7 @@ def render_markdown(report: AuditReport) -> str:
         f"| Frontend API calls | {len([c for c in m.calls if c.path])} |",
         f"| Operations in the API spec | {len(m.spec_operations)} |",
         f"| Database tables | {len(m.tables)} |",
+        f"| Routes with a declared request or response shape | {_shaped(m.routes)} of {len(m.routes)} |",
         f"| Routes whose data access was found | {len([r for r in m.routes if r.data and r.data.accesses])} of {len(m.routes)} |",
         "",
         "This compares the layers with each other. It does not run the application or know the",

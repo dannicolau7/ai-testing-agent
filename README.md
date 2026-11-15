@@ -218,6 +218,23 @@ and a count of what was already there. It exits 1 only when the change adds some
 is wrong now, so known problems do not block every pull request. A finding that only moved
 to another line is not new. `docs/audit-on-pull-requests.md` has a GitHub Actions example.
 
+### In a real browser
+
+```bash
+pip install playwright && playwright install chromium
+python cli.py browse http://localhost:3000 --source path/to/app
+python examples/browser-demo/server.py 8765 &      # a small site with planted problems
+python cli.py browse http://127.0.0.1:8765
+```
+
+`browse` opens the running application in a browser, follows its links, and reports what it
+sees: a page that throws an error, a request to the API answered "not found" or with a
+server error, a link that leads nowhere. With `--source` it also lists which backend routes
+it saw being called. It only opens pages and follows links; it never fills in forms, and
+it clicks buttons only with `--click`, skipping any whose label looks destructive. Use it
+against a test environment, never production. `--header 'Authorization: Bearer ...'`
+signs it in.
+
 ### Which model, and what it costs
 
 | Setting | Model | Cost |

@@ -64,3 +64,29 @@ jobs:
             test_permissions.py \
             test_audit_diff.py \
             -v --tb=short
+
+  browser:
+    # The browser check runs a real Chromium against a small local site.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies and a browser
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run the browser tests
+        env:
+          AI_AGENT_TELEMETRY: "false"
+        run: |
+          python -m pytest test_browser_audit.py -v --tb=short -rs
+          # A skip here would mean the browser did not start: fail instead of passing quietly.
+          python -m pytest test_browser_audit.py -q -rs | tee result.txt
+          ! grep -q "skipped" result.txt

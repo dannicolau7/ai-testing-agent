@@ -971,6 +971,39 @@ def cmd_audit(args):
     sys.exit(0 if ok else 1)
 
 
+def cmd_browse(args):
+    """Open the running application in a browser and report what its pages do."""
+    import app_audit
+    import browser_audit
+
+    headers = {}
+    for item in args.header or []:
+        name, sep, value = item.partition(":")
+        if not sep or not name.strip():
+            print(f"❌ --header must look like 'Name: value', got: {item[:40]}")
+            sys.exit(2)
+        headers[name.strip()] = value.strip()
+    model = None
+    if args.source:
+        if not Path(args.source).is_dir():
+            print(f"❌ Not a directory: {args.source}")
+            sys.exit(2)
+        model = app_audit.build_model(args.source)
+    try:
+        seen = browser_audit.browse(args.url, max_pages=args.max_pages, click=args.click, headers=headers)
+    except browser_audit.BrowserUnavailable as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
+    result = browser_audit.report(seen, model)
+    markdown = browser_audit.render_markdown(result)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    else:
+        print(markdown)
+    sys.exit(0 if result.ok else 1)
+
+
 def cmd_link(args):
     """Ask a model to propose which code each requirement is about, for a person to confirm."""
     import app_audit
@@ -1504,6 +1537,20 @@ Examples:
     audit_parser.add_argument('--requirements', '-r',
                               help='Requirements file; also check the code against requirements that name a route')
 
+    # Browser check (roadmap stage 7)
+    browse_parser = subparsers.add_parser(
+        'browse',
+        help='Open the running application in a browser, follow its links and report what fails'
+    )
+    browse_parser.add_argument('url', help='Where the application runs, e.g. http://localhost:3000 (a TEST environment)')
+    browse_parser.add_argument('--source', help='Application source folder, to compare with the backend routes')
+    browse_parser.add_argument('--max-pages', type=int, default=25, help='How many pages to open at most (default 25)')
+    browse_parser.add_argument('--click', action='store_true',
+                               help='Also click buttons outside forms whose label does not look destructive')
+    browse_parser.add_argument('--header', action='append', metavar="'Name: value'",
+                               help='A header sent with every request, e.g. to sign in; may be repeated')
+    browse_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+
     # Model-proposed links between requirements and code
     link_parser = subparsers.add_parser(
         'link',
@@ -1586,6 +1633,8 @@ Examples:
         cmd_audit(args)
     elif args.command == 'link':
         cmd_link(args)
+    elif args.command == 'browse':
+        cmd_browse(args)
     elif args.command == 'permissions':
         cmd_permissions(args)
     elif args.command == 'trace':

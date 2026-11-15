@@ -471,9 +471,17 @@ def build_model(root_path: str) -> AppModel:
         model.routes += python_routes(source, rel)
         model.tables += sqlalchemy_tables(source, rel)
         try:
-            trees.append((rel, ast.parse(source)))
+            tree = ast.parse(source)
         except SyntaxError:
             model.files_skipped.append(f"{rel} (could not be parsed as Python)")
+            continue
+        trees.append((rel, tree))
+        # Tables created from Python, as in db.execute("CREATE TABLE ...").
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "CREATE TABLE" in node.value.upper():
+                for table in sql_tables(node.value, rel):
+                    table.line += node.lineno - 1
+                    model.tables.append(table)
     _attach_handler_data(model, trees)
     for path in _files(root, (".js", ".jsx", ".ts", ".tsx", ".mjs", ".vue", ".svelte"), model):
         source, rel = _read(path), str(path.relative_to(root))
@@ -526,6 +534,8 @@ def _match(key: Tuple[str, str], keys: Set[Tuple[str, str]]) -> bool:
                for m, p in keys)
 
 
+# Routes a frontend is not expected to call.
+OPERATIONAL = re.compile(r"^/$|^/(health|healthz|ready|readyz|live|livez|metrics|ping|status|docs|openapi\.json)$")
 # A column that says whose row this is.
 OWNER_COLUMN = re.compile(
     r"^(user|owner|customer|account|tenant|org|organi[sz]ation|member|author|creator|created_by)(_id)?$",
@@ -555,10 +565,14 @@ def _audit_data_access(model: AppModel, add) -> None:
         for access in route.data.accesses:
             table = tables.get(access.table.lower())
             touched.add(access.table.lower())
-            if access.built_from_values:
-                once("likely", f"SQL on `{access.table}` is built by inserting values into the text",
-                     f"Reached from {name}. If any inserted value comes from the request, a caller can "
-                     "change the query. Pass values as parameters.", access)
+            if access.built_from_values and access.from_parameter:
+                once("likely", f"SQL on `{access.table}` is built by inserting a function argument into the text",
+                     f"Reached from {name}. Inserted: {', '.join(access.inserted)}. If the argument comes "
+                     "from the request, a caller can change the query. Pass values as parameters.", access)
+            elif access.built_from_values:
+                once("unclear", f"SQL on `{access.table}` is assembled from pieces",
+                     f"Reached from {name}. Inserted: {', '.join(access.inserted) or 'an expression'}. "
+                     "This is safe only if every piece is fixed text; a person should confirm.", access)
             if not model.tables or not access.sql:
                 continue
             if table is None:
@@ -609,6 +623,17 @@ def _audit_data_access(model: AppModel, add) -> None:
             if table.name.lower() not in touched:
                 add("unclear", f"No route reads or writes table `{table.name}`",
                     "It may be used by code this audit did not follow, or it may be unused.", _where(table))
+
+
+def _names_a_table(column: str, tables: List[Table]) -> bool:
+    """True when an _id column is named after a table: address_id or shipping_address_id → addresses."""
+    stem = column.lower()[:-3]
+    for table in tables:
+        name = table.name.lower()
+        singular = {name, name[:-1] if name.endswith("s") else name, name[:-2] if name.endswith("es") else name}
+        if any(stem == s or stem.endswith("_" + s) for s in singular):
+            return True
+    return False
 
 
 def audit(model: AppModel) -> AuditReport:
@@ -664,8 +689,17 @@ def audit(model: AppModel) -> AuditReport:
 
     # Backend routes the frontend never uses.
     if model.routes and model.calls:
-        for route in model.routes:
-            if not _match(route.key, call_keys):
+        uncalled = [r for r in model.routes if not _match(r.key, call_keys)
+                    and not OPERATIONAL.match(normalize_path(r.path))]
+        if len(uncalled) > 5:
+            # This many usually means the frontend calls the API in a way this audit cannot read.
+            listed = ", ".join(f"{r.method} {r.path}" for r in uncalled[:12])
+            more = f" and {len(uncalled) - 12} more" if len(uncalled) > 12 else ""
+            add("unclear", f"{len(uncalled)} backend routes are not called by any frontend request this audit could read",
+                f"{listed}{more}. With this many, the frontend probably calls them through a helper, or "
+                "they serve another client.", _where(uncalled[0]))
+        else:
+            for route in uncalled:
                 add("unclear", f"Nothing in the frontend calls {route.method} {route.path}",
                     "It may serve another client, or it may be dead code.", _where(route))
 
@@ -677,7 +711,8 @@ def audit(model: AppModel) -> AuditReport:
             add("likely", f"Table {table.name} has no primary key",
                 "Rows cannot be told apart reliably, and duplicates are not prevented.", _where(table))
         for column in table.columns:
-            if column.name.lower().endswith("_id") and not column.foreign_key and not column.primary_key:
+            if (column.name.lower().endswith("_id") and not column.foreign_key and not column.primary_key
+                    and _names_a_table(column.name, model.tables)):
                 add("likely", f"{table.name}.{column.name} looks like a reference but has no foreign key",
                     "The database will accept a value that points at nothing.", _where(table))
 

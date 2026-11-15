@@ -98,8 +98,14 @@ now knows which tables it reads and writes. From that it reports: a table or col
 database does not define; a row fetched by id with no sign that the caller owns it; SQL
 built by inserting values into the text; a GET that changes data; tables no route touches.
 
-Still to do: it has been run on a sample application only, not on a real codebase, so the
-rate of false alarms is unknown. The ownership check looks for the owner column's name
+Tried on real code: the sample application, plus two of our own projects (a FastAPI + React
+app and a FastAPI + Next.js app). That run removed three kinds of false alarm: `_id` columns
+that are not references, SQL assembled from fixed pieces (now "unclear", not "likely"), and
+a long list of routes the frontend reaches through a helper (now one finding). One known
+false alarm remains: a route protected by global middleware is reported as showing no
+access check.
+
+Still to do: two small codebases are not enough to know the false-alarm rate. The ownership check looks for the owner column's name
 anywhere in the handler's code, which is evidence, not proof. Queries assembled across
 variables, query builders, Django, and JavaScript backends are not read. Next: request and
 response shapes compared between frontend, spec and backend, and requirements linked to

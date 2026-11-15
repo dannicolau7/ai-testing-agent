@@ -145,7 +145,7 @@ python cli.py audit examples/audit-demo    # a small sample with planted problem
 
 `audit` reads the source and needs no model and no running application. It finds backend
 routes (FastAPI, Flask, Express), frontend requests (`fetch`, `axios`), OpenAPI specs and
-database tables (SQL `CREATE TABLE`, SQLAlchemy models), then reports where they disagree:
+database tables (SQL `CREATE TABLE` in `.sql` files or Python strings, SQLAlchemy models), then reports where they disagree:
 
 - **Wrong now:** the frontend calls a route that does not exist; the spec documents an
   operation nobody implemented; the spec says a route needs authentication and the code
@@ -153,8 +153,8 @@ database tables (SQL `CREATE TABLE`, SQLAlchemy models), then reports where they
   For Python backends it also follows each handler to the SQL and SQLAlchemy calls it
   makes, and reports code that uses a table or column the database does not define.
 - **Likely to go wrong:** a route that changes data with no visible access check; a row
-  fetched by id with no sign that the caller owns it; SQL built by inserting values into
-  the text; a GET that changes data; a route missing from the spec; a table with no primary
+  fetched by id with no sign that the caller owns it; SQL built by inserting a function
+  argument into the text; a GET that changes data; a route missing from the spec; a table with no primary
   key; an `_id` column with no foreign key.
 - **Unclear:** things the audit could not decide, for a person to look at.
 - **Not examined:** stated every time, including any layer it did not find.

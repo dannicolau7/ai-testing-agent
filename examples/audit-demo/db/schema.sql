@@ -3,6 +3,12 @@ CREATE TABLE customers (
     email TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE addresses (
+    id INTEGER PRIMARY KEY,
+    customer_id INTEGER NOT NULL REFERENCES customers(id),
+    line1 TEXT NOT NULL
+);
+
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY,
     customer_id INTEGER NOT NULL REFERENCES customers(id),

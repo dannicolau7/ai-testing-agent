@@ -49,6 +49,8 @@ class DataAccess:
     filters: List[str] = field(default_factory=list)   # columns the statement filters on
     columns: List[str] = field(default_factory=list)   # columns the statement writes
     built_from_values: bool = False                    # SQL text assembled with values
+    inserted: List[str] = field(default_factory=list)  # names inserted into the text
+    from_parameter: bool = False                       # one of them is a parameter of the function
     sql: bool = True                                   # False for ORM calls
     single_table: bool = True
 
@@ -110,32 +112,32 @@ def parse_sql(text: str, file: str = "", line: int = 0, built: bool = False) -> 
                        single_table=len(tables) == 1) for t in tables]
 
 
-def _sql_text(node: ast.AST, any_case: bool = False) -> Optional[Tuple[str, bool]]:
+def _sql_text(node: ast.AST, any_case: bool = False) -> Optional[Tuple[str, bool, List[ast.AST]]]:
     """(text, built from values) when this expression is SQL text, else None."""
     _IS_SQL = _IS_SQL_ANY_CASE if any_case else globals()["_IS_SQL"]
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return (node.value, False) if _IS_SQL.match(node.value) else None
+        return (node.value, False, []) if _IS_SQL.match(node.value) else None
     if isinstance(node, ast.JoinedStr):
-        parts, built = [], False
+        parts, inserted = [], []
         for value in node.values:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 parts.append(value.value)
             else:
                 parts.append("{}")
-                built = True
+                inserted.append(value)
         text = "".join(parts)
-        return (text, built) if _IS_SQL.match(text) else None
+        return (text, bool(inserted), inserted) if _IS_SQL.match(text) else None
     if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
         left = _sql_text(node.left, any_case)
         if left is None:
             return None
         right = _sql_text(node.right, any_case) if isinstance(node.op, ast.Add) else None
         if isinstance(node.op, ast.Add) and isinstance(node.right, ast.Constant) and isinstance(node.right.value, str):
-            return left[0] + node.right.value, left[1]          # two literals joined: not built from values
-        return left[0] + (right[0] if right else " {}"), True
+            return left[0] + node.right.value, left[1], left[2]  # two literals joined: not built from values
+        return left[0] + (right[0] if right else " {}"), True, left[2] + [node.right]
     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "format"):
         inner = _sql_text(node.func.value, any_case)
-        return (inner[0], True) if inner else None
+        return (inner[0], True, inner[2] + list(node.args) + [k.value for k in node.keywords]) if inner else None
     return None
 
 
@@ -196,6 +198,17 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
         seen.add(id(node))
         data.functions_followed += 1
         consumed: Set[int] = set()   # string nodes that are part of a larger SQL expression
+        args = getattr(node, "args", None)
+        params = {a.arg for a in (args.posonlyargs + args.args + args.kwonlyargs)} if args else set()
+
+        def record(sql, line) -> None:
+            names = sorted({n.id for expr in sql[2] for n in ast.walk(expr) if isinstance(n, ast.Name)})
+            found = parse_sql(sql[0], where, line, sql[1])
+            for access in found:
+                access.inserted = names
+                access.from_parameter = bool(params & set(names))
+                data.names.update(access.filters)
+            data.accesses.extend(found)
         nodes = sorted(_walk_own(node), key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
         for child in nodes:
             if isinstance(child, ast.Name):
@@ -209,19 +222,13 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
                 if direct is not None and id(child.args[0]) not in consumed:
                     for sub in ast.walk(child.args[0]):
                         consumed.add(id(sub))
-                    found = parse_sql(direct[0], where, child.lineno, direct[1])
-                    data.accesses += found
-                    for access in found:
-                        data.names.update(access.filters)
+                    record(direct, child.lineno)
             if isinstance(child, (ast.Constant, ast.JoinedStr, ast.BinOp, ast.Call)) and id(child) not in consumed:
                 sql = _sql_text(child)
                 if sql is not None:
                     for sub in ast.walk(child):
                         consumed.add(id(sub))
-                    found = parse_sql(sql[0], where, child.lineno, sql[1])
-                    data.accesses += found
-                    for access in found:
-                        data.names.update(access.filters)
+                    record(sql, child.lineno)
                     continue
             if isinstance(child, ast.Call):
                 data.accesses += _orm_accesses(child, where)

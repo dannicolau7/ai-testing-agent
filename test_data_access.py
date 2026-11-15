@@ -177,3 +177,15 @@ def test_sqlalchemy_calls_are_linked_to_their_tables(tmp_path):
     assert [t for t in _titles(report, "likely") if "who owns" in t] == [
         "GET /notes/{note_id} reads `notes` without checking who owns the row"]
     assert "No route reads or writes table `tags`" in _titles(report, "unclear")
+
+
+def test_inserted_arguments_are_likely_and_inserted_local_pieces_are_unclear(tmp_path):
+    report = _app(tmp_path,
+        "@app.get('/notes')\n"
+        "def listing(order: str, db=Depends(get_db), user=Depends(current_user)):\n"
+        "    where = 'WHERE user_id = ?'\n"
+        "    db.execute(f'SELECT id FROM notes {where}', (user.id,))\n"
+        "    return db.execute(f'SELECT id FROM notes WHERE user_id = ? ORDER BY {order}', (user.id,))\n")
+    assert [t for t in _titles(report, "likely") if "SQL" in t] == [
+        "SQL on `notes` is built by inserting a function argument into the text"]
+    assert [t for t in _titles(report, "unclear") if "SQL" in t] == ["SQL on `notes` is assembled from pieces"]

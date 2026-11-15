@@ -18,6 +18,9 @@ pytest-cov>=4.1.0         # Code coverage
 pytest-xdist>=3.5.0       # Parallel test execution
 allure-pytest>=2.13.0     # Allure reporting framework
 
+# Test data in the project's own tests
+faker>=20.0.0             # test_quality_enhancer.py
+
 # Development dependencies
 black>=23.0.0             # Code formatting
 flake8>=6.0.0             # Linting

@@ -71,9 +71,9 @@ def test_pages_are_opened_and_planted_problems_are_seen(site, tmp_path):
     assert _titles(result, "wrong_now") == [
         "The page /help throws an error",
         "A link on / leads to /old-page, which answers 404",
-        "The page /reports calls GET /api/reports/summary, and the server answers 404",
         "The page /reports calls GET /api/reports/slow, and the server fails with 500",
-    ]
+        "The page /reports calls GET /api/reports/summary, and the server answers 404",
+    ], "in a fixed order, whichever answer arrived first"
     assert _titles(result, "likely") == ["The page /help writes an error to the console"]
     assert _titles(result, "unclear") == ["The page /account calls GET /api/me, and is refused with 401"]
     assert not result.ok

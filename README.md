@@ -207,6 +207,28 @@ for. `--tests` writes one pytest test per role and route, including every cell t
 refused. Run those against a test environment only: they send real requests. A test with no
 token for its role is skipped, never passed.
 
+### From findings to proof
+
+```bash
+python cli.py audit path/to/app -r requirements.md --tests-out test_findings.py
+FINDINGS_BASE_URL=http://localhost:8000 pytest test_findings.py
+```
+
+The audit reads source, so a finding is evidence, not proof. `--tests-out` writes one test
+for each finding a request can settle:
+
+- a route the frontend or the spec relies on **exists**;
+- a route that shows no access check **refuses a caller who is not signed in**;
+- a route that shows no ownership check **refuses a user asking for someone else's row**.
+
+A test that fails means the fault is real. A test that passes means the finding was a false
+alarm, or has been fixed. Tests carry the requirement they came from, so `trace` counts
+them. Findings a request cannot settle are listed at the top of the generated file.
+
+These tests send real requests. One that would change data is skipped unless you set
+`FINDINGS_ALLOW_WRITES=1`, because if the fault is real the change happens. Use a test
+environment only.
+
 ### On every pull request
 
 ```bash

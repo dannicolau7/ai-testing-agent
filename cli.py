@@ -950,6 +950,14 @@ def cmd_audit(args):
             sys.exit(2)
     report = app_audit.audit(app_audit.build_model(args.path), requirements, links, notes, policy)
     ok, markdown = report.ok, app_audit.render_markdown(report)
+    if args.tests_out:
+        import finding_tests
+
+        text, count, untested = finding_tests.generate(report.findings)
+        Path(args.tests_out).write_text(text, encoding='utf-8')
+        print(f"{count} test(s) written from the findings → {args.tests_out}; "
+              f"{len(untested)} finding(s) cannot be settled by a request.", file=sys.stderr)
+        print("Run them against a TEST environment only. A failing test means the fault is real.", file=sys.stderr)
     if args.baseline or args.save:
         import audit_diff
 
@@ -1613,6 +1621,8 @@ Examples:
     )
     audit_parser.add_argument('path', help='Root directory of the application source')
     audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    audit_parser.add_argument('--tests-out', metavar='FILE',
+                              help='Write a pytest file with one test per finding a request can settle')
     audit_parser.add_argument('--save', metavar='FILE',
                               help='Save the findings as JSON, to compare a later audit with')
     audit_parser.add_argument('--baseline', metavar='FILE',

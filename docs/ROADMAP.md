@@ -193,6 +193,19 @@ been run in a real repository.
 Run the audit on each pull request and report only what changed: new gaps, tests that no
 longer validate, requirements that lost coverage.
 
+## From findings to proof (built)
+
+`audit --tests-out FILE` (`finding_tests.py`) writes a test for each finding a request can
+settle: the route exists, it refuses a caller who is not signed in, it refuses a user asking
+for another user's row. A failing test proves the fault; a passing one clears a false alarm.
+In this project's own tests the generated tests run against a small live application: three
+real faults fail and one false alarm passes.
+
+Still to do: only three kinds of finding can be tested this way. Missing columns, request
+shapes and role rules need a request body or a second role, which the generator does not
+build yet. The tests have not been run against a real application. There are no generated
+browser tests: nothing yet carries out a requirement in the page and then checks the backend.
+
 ## Trials on real code
 
 `docs/real-code-trial.md` records three trials on applications we did not write: FastAPI,

@@ -60,4 +60,5 @@ jobs:
             test_data_access.py \
             test_shapes.py \
             test_requirements_audit.py \
+            test_model_backend.py \
             -v --tb=short

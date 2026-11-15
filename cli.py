@@ -923,7 +923,23 @@ def cmd_audit(args):
         if not requirements:
             print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
             sys.exit(2)
-    report = app_audit.audit(app_audit.build_model(args.path), requirements)
+    links, notes = None, []
+    if args.links:
+        import requirement_links
+
+        if requirements is None:
+            print("❌ --links needs --requirements.")
+            sys.exit(2)
+        try:
+            loaded, notes = requirement_links.load(Path(args.links).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read links file: {exc}")
+            sys.exit(2)
+        links = requirement_links.as_overrides(loaded)
+        waiting = len(loaded) - len(links)
+        if waiting:
+            notes.append(f"{waiting} proposed link(s) are not confirmed and were not used")
+    report = app_audit.audit(app_audit.build_model(args.path), requirements, links, notes)
     markdown = app_audit.render_markdown(report)
     if args.output:
         Path(args.output).write_text(markdown, encoding='utf-8')
@@ -931,6 +947,47 @@ def cmd_audit(args):
     else:
         print(markdown)
     sys.exit(0 if report.ok else 1)
+
+
+def cmd_link(args):
+    """Ask a model to propose which code each requirement is about, for a person to confirm."""
+    import app_audit
+    import model_backend
+    import requirement_links
+    import traceability
+
+    backend = model_backend.resolve(args.api_key)
+    if backend is None:
+        print("❌ No model is configured. Set ATA_MODEL_URL for a local model (free), for example\n"
+              "   ATA_MODEL_URL=http://localhost:11434/v1 ATA_MODEL_NAME=llama3.2\n"
+              "   or set ANTHROPIC_API_KEY. `audit --requirements` works without a model for\n"
+              "   requirements that name their route.")
+        sys.exit(2)
+    if not Path(args.path).is_dir():
+        print(f"❌ Not a directory: {args.path}")
+        sys.exit(2)
+    try:
+        requirements = traceability.extract_requirements(Path(args.requirements).read_text(encoding='utf-8'))
+    except OSError as exc:
+        print(f"❌ Cannot read requirements file: {exc}")
+        sys.exit(2)
+    if not requirements:
+        print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
+        sys.exit(2)
+    model = app_audit.build_model(args.path)
+    print(f"Asking {backend.describe()} about {len(requirements)} requirement(s). "
+          "It is sent each requirement with route and handler names; no source code.")
+    try:
+        links = requirement_links.propose(
+            requirements, model, backend,
+            progress=lambda i, n, req_id: print(f"  {i}/{n} {req_id}", flush=True))
+    except model_backend.ModelError as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
+    Path(args.output).write_text(requirement_links.dump(links, backend.describe()), encoding='utf-8')
+    linked = len([x for x in links if x.routes or x.checks])
+    print(f"Proposed links for {linked} of {len(links)} requirement(s) → {args.output}")
+    print("Nothing is used until you confirm it: open the file and set `confirmed: true` on the right ones.")
 
 
 def cmd_trace(args):
@@ -1378,8 +1435,20 @@ Examples:
     )
     audit_parser.add_argument('path', help='Root directory of the application source')
     audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    audit_parser.add_argument('--links',
+                              help='Links file from the `link` command; only confirmed links are used')
     audit_parser.add_argument('--requirements', '-r',
                               help='Requirements file; also check the code against requirements that name a route')
+
+    # Model-proposed links between requirements and code
+    link_parser = subparsers.add_parser(
+        'link',
+        help='Ask a model (local or API) to propose which routes each requirement is about'
+    )
+    link_parser.add_argument('path', help='Root directory of the application source')
+    link_parser.add_argument('--requirements', '-r', required=True, help='Requirements file')
+    link_parser.add_argument('--output', '-o', default='requirement-links.yaml',
+                             help='Where to write the proposed links (default: requirement-links.yaml)')
 
     # Traceability (roadmap stage 2)
     trace_parser = subparsers.add_parser(
@@ -1440,6 +1509,8 @@ Examples:
         cmd_analyze_code(args)
     elif args.command == 'audit':
         cmd_audit(args)
+    elif args.command == 'link':
+        cmd_link(args)
     elif args.command == 'trace':
         cmd_trace(args)
     elif args.command == 'validate':

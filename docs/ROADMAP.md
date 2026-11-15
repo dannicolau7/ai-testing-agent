@@ -109,6 +109,15 @@ route, or a handler names it). Four things are checked from the wording: sign-in
 ownership, administrators only, uniqueness in the database. This is the first place the
 audit judges against what the product should do, not only whether the layers agree.
 
+Also built (`model_backend.py`, `requirement_links.py`): the model is now a choice. No model
+(everything that reads source), a local model through any OpenAI-compatible server (free,
+nothing leaves the machine), or the Anthropic API. `python cli.py link` asks the model
+which route each requirement is about and writes its proposals to a file; only links a
+person confirms are used by `audit --links`. Measured with Llama 3.2 (3B) on the demo's nine
+plain-worded requirements: seven right, two wrong routes. Earlier prompt forms did worse
+(free-form JSON invented checks; yes/no per route said yes to 13 wrong routes or no to
+nearly everything), so the model is asked one multiple-choice question per requirement.
+
 Tried on real code: the sample application, plus two of our own projects (a FastAPI + React
 app and a FastAPI + Next.js app). That run removed three kinds of false alarm: `_id` columns
 that are not references, SQL assembled from fixed pieces (now "unclear", not "likely"), and
@@ -121,9 +130,9 @@ anywhere in the handler's code, which is evidence, not proof. Queries assembled 
 variables, query builders, Django, and JavaScript backends are not read. Shapes compare
 field names only, not types, and not what the frontend reads from a response. The
 requirements check matches wording with fixed patterns, so it covers four kinds of
-statement and has not been tried on a real requirements document. Next: a model to read
-each requirement and propose links and checks for a person to confirm; then Stage 6, the
-table of roles against actions.
+statement and has not been tried on a real requirements document. Model-proposed links are measured on nine made-up requirements only, with one small
+model; a stronger model has not been tried. Next: Stage 6, the table of roles against
+actions.
 
 Go beyond route decorators: which handler reads and writes which data, which checks run
 before it, what it returns on each path. Store this as a model the later stages query, so a

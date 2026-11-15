@@ -689,7 +689,8 @@ def _names_a_table(column: str, tables: List[Table]) -> bool:
     return False
 
 
-def audit(model: AppModel, requirements: Optional[list] = None) -> AuditReport:
+def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[dict] = None,
+          link_notes: Optional[List[str]] = None) -> AuditReport:
     """Compare the layers. With requirements (from traceability.extract_requirements), also
     check what each requirement says against the code it is linked to."""
     report = AuditReport(model=model)
@@ -794,7 +795,7 @@ def audit(model: AppModel, requirements: Optional[list] = None) -> AuditReport:
     if requirements is not None:
         import requirements_audit
 
-        report.requirements = requirements_audit.check(model, requirements)
+        report.requirements = requirements_audit.check(model, requirements, links, link_notes)
         # A requirement turns a suspicion into a fault: drop the weaker copy of the same finding.
         report.findings = [f for f in report.findings if f.title not in report.requirements.supersedes]
         report.findings += report.requirements.findings

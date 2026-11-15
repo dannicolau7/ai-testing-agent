@@ -206,6 +206,18 @@ for. `--tests` writes one pytest test per role and route, including every cell t
 refused. Run those against a test environment only: they send real requests. A test with no
 token for its role is skipped, never passed.
 
+### On every pull request
+
+```bash
+python cli.py audit path/to/app --save baseline.json        # on the main branch
+python cli.py audit path/to/app --baseline baseline.json    # on the pull request
+```
+
+With `--baseline` the report shows only what the change did: new findings, fixed findings,
+and a count of what was already there. It exits 1 only when the change adds something that
+is wrong now, so known problems do not block every pull request. A finding that only moved
+to another line is not new. `docs/audit-on-pull-requests.md` has a GitHub Actions example.
+
 ### Which model, and what it costs
 
 | Setting | Model | Cost |

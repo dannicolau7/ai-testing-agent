@@ -168,7 +168,16 @@ Drive the application in a browser. Check that each user-facing requirement can 
 out, that the frontend and backend agree on what is allowed, and that a control hidden in
 the interface is also refused by the server.
 
-### Stage 8: every change
+### Stage 8: every change (first version done)
+
+Built (`audit_diff.py`): `audit --save FILE` stores an audit's findings; `audit --baseline
+FILE` reports only what changed since then (new, fixed, and a count of the rest) and fails
+only for a new fault. `docs/audit-on-pull-requests.md` shows how to run it in GitHub
+Actions.
+
+Still to do: it compares audit findings only. Tests that no longer validate and
+requirements that lost test coverage are not compared yet, and the workflow example has not
+been run in a real repository.
 
 Run the audit on each pull request and report only what changed: new gaps, tests that no
 longer validate, requirements that lost coverage.

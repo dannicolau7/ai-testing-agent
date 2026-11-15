@@ -177,7 +177,7 @@ def test_a_confirmed_link_to_a_route_that_is_gone_is_flagged():
 def test_link_command_end_to_end(server, tmp_path):
     s = server(lambda prompt: "2" if "view an order" in prompt else "0")
     out = tmp_path / "links.yaml"
-    env = {"PATH": "/usr/bin:/bin", "ATA_MODEL_URL": s.url, "ATA_MODEL_NAME": "tiny", "NO_ANALYTICS": "1"}
+    env = {"PATH": "/usr/bin:/bin", "ATA_MODEL_URL": s.url, "ATA_MODEL_NAME": "tiny", "AI_AGENT_TELEMETRY": "false"}
     proc = subprocess.run(
         [sys.executable, "cli.py", "link", str(DEMO), "-r", str(DEMO / "requirements-plain.md"), "-o", str(out)],
         capture_output=True, text=True, env=env)
@@ -200,7 +200,7 @@ def test_link_command_end_to_end(server, tmp_path):
 def test_the_agent_uses_a_local_model_when_one_is_set(server, monkeypatch):
     s = server("hello from the local model")
     monkeypatch.setenv("ATA_MODEL_URL", s.url)
-    monkeypatch.setenv("NO_ANALYTICS", "1")
+    monkeypatch.setenv("AI_AGENT_TELEMETRY", "false")
     from ai_testing_agent import AITestingAgent
 
     agent = AITestingAgent(verbose=False)

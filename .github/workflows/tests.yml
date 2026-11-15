@@ -62,4 +62,5 @@ jobs:
             test_requirements_audit.py \
             test_model_backend.py \
             test_permissions.py \
+            test_audit_diff.py \
             -v --tb=short

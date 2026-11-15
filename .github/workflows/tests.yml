@@ -54,4 +54,6 @@ jobs:
             test_compliance.py \
             test_chain_detector.py \
             test_execute_tests.py \
+            test_traceability.py \
+            test_validation_check.py \
             -v --tb=short

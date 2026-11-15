@@ -904,6 +904,43 @@ def cmd_chains(args):
     print(f"   Run with: pytest {output_file} -v")
 
 
+def cmd_trace(args):
+    """Requirement traceability: which requirement does each test check?"""
+    import traceability
+
+    try:
+        text = Path(args.requirements).read_text(encoding='utf-8')
+    except OSError as exc:
+        print(f"❌ Cannot read requirements file: {exc}")
+        sys.exit(2)
+    requirements = traceability.extract_requirements(text)
+    if not requirements:
+        print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
+        sys.exit(2)
+    report = traceability.build_report(requirements, traceability.scan_tests(args.tests))
+    markdown = traceability.render_markdown(report)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    else:
+        print(markdown)
+    sys.exit(0 if report.ok else 1)
+
+
+def cmd_validate(args):
+    """Test validation: does each test fail when the response is wrong?"""
+    import validation
+
+    result = validation.validate_tests(args.tests, timeout=args.timeout)
+    markdown = validation.render_markdown(result)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    else:
+        print(markdown)
+    sys.exit(2 if result.problem else (0 if result.ok else 1))
+
+
 def cmd_analyze_code(args):
     """
     Analyze API source code and generate pytest tests directly.
@@ -1305,6 +1342,24 @@ Examples:
         dest='test_data'
     )
 
+    # Traceability (roadmap stage 2)
+    trace_parser = subparsers.add_parser(
+        'trace',
+        help='Show which requirement each test checks, and which requirements have no test'
+    )
+    trace_parser.add_argument('requirements', help='Requirements document with ids such as REQ-12')
+    trace_parser.add_argument('tests', nargs='+', help='Test files or directories')
+    trace_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+
+    # Validation (roadmap stage 3)
+    validate_parser = subparsers.add_parser(
+        'validate',
+        help='Check that each passing test fails when the HTTP response is wrong'
+    )
+    validate_parser.add_argument('tests', nargs='+', help='Test files or directories')
+    validate_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    validate_parser.add_argument('--timeout', type=int, default=300, help='Seconds per pytest run')
+
     # Request command (Postman replacement)
     add_request_command(subparsers)
 
@@ -1344,6 +1399,10 @@ Examples:
         cmd_chains(args)
     elif args.command == 'analyze-code':
         cmd_analyze_code(args)
+    elif args.command == 'trace':
+        cmd_trace(args)
+    elif args.command == 'validate':
+        cmd_validate(args)
     elif args.command == 'test-data':
         cmd_test_data(args)
     elif args.command == 'env':

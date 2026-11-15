@@ -43,21 +43,27 @@ def test_planted_problems_are_found_and_sorted():
         "The frontend calls POST /api/orders/{id}/refund, which no backend route defines",
         "The API spec documents GET /api/orders/{orderId}/invoice, which the backend does not implement",
         "The spec says DELETE /api/orders/{order_id} needs authentication, but the code shows no check",
+        "The code uses column `orders.status`, which the table does not have",
+        "The code uses table `search_jobs`, which the database does not define",
     ]
     assert _titles(report, "likely") == [
         "POST /api/admin/reindex is not in the API spec",
+        "SQL on `orders` is built by inserting values into the text",
+        "GET /api/orders/{order_id} reads `orders` without checking who owns the row",
         "orders.shipping_address_id looks like a reference but has no foreign key",
         "Table order_events has no primary key",
     ]
     assert _titles(report, "unclear") == [
         "A frontend request whose address is built at run time",
         "Nothing in the frontend calls POST /api/admin/reindex",
+        "No route reads or writes table `customers`",
     ]
     assert not report.ok
     markdown = app_audit.render_markdown(report)
-    assert "## Wrong now (4)" in markdown and "## Not examined" in markdown
+    assert "## Wrong now (6)" in markdown and "## Not examined" in markdown
     assert "The backend defines DELETE, GET for that path." in markdown
     assert "not that the product is right" in markdown
+    assert "| Routes whose data access was found | 5 of 5 |" in markdown
 
 
 def test_paths_from_every_framework_compare_equal():
@@ -138,7 +144,7 @@ def test_command_line(tmp_path):
         [sys.executable, "cli.py", "audit", str(DEMO), "-o", str(out)], capture_output=True, text=True
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "## Wrong now (4)" in out.read_text()
+    assert "## Wrong now (6)" in out.read_text()
     missing = subprocess.run(
         [sys.executable, "cli.py", "audit", str(tmp_path / "nope")], capture_output=True, text=True
     )

@@ -150,13 +150,17 @@ database tables (SQL `CREATE TABLE`, SQLAlchemy models), then reports where they
 - **Wrong now:** the frontend calls a route that does not exist; the spec documents an
   operation nobody implemented; the spec says a route needs authentication and the code
   shows no check.
-- **Likely to go wrong:** a route that changes data with no visible access check; a route
-  missing from the spec; a table with no primary key; an `_id` column with no foreign key.
+  For Python backends it also follows each handler to the SQL and SQLAlchemy calls it
+  makes, and reports code that uses a table or column the database does not define.
+- **Likely to go wrong:** a route that changes data with no visible access check; a row
+  fetched by id with no sign that the caller owns it; SQL built by inserting values into
+  the text; a GET that changes data; a route missing from the spec; a table with no primary
+  key; an `_id` column with no foreign key.
 - **Unclear:** things the audit could not decide, for a person to look at.
 - **Not examined:** stated every time, including any layer it did not find.
 
 It exits 1 when there is a "wrong now" finding. It compares the layers with each other; it
-does not read handler logic or know your requirements, so a clean result means the layers
+reads data access but not the rest of the handler logic, and does not know your requirements, so a clean result means the layers
 agree, not that the product is right.
 
 From an OpenAPI spec (auto-detected by `.yaml` extension):

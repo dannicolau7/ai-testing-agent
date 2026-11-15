@@ -31,13 +31,14 @@ audit tool that overstates what it checked is worse than no tool.
 | Requirements as input (text, Markdown, PDF, Word) | Works; they are passed to a model as a prompt |
 | OpenAPI and Swagger specs | Works |
 | Backend routes from source (FastAPI, Flask, Express) | Reads decorators and route definitions only |
+| Do the layers agree (frontend, backend, API spec, database) | First version: `python cli.py audit` |
 | Chains across endpoints (create → read → update → delete, login → profile) | Works |
 | Running generated tests | Works as of this change; it used to be simulated |
 | Link from a requirement to its tests | Works: `python cli.py trace` (not yet to the code) |
 | Proof that a test can fail | Works for tests that call the system through `requests`: `python cli.py validate` |
-| Database | Missing |
+| Database | Reads SQL and SQLAlchemy tables; checks keys only. Migrations not read |
 | Permissions (who may do what) | Detects that auth is needed; no model of roles |
-| Frontend | Missing |
+| Frontend | Reads `fetch` and `axios` calls from source; no browser |
 | Re-checking on change | Missing |
 
 ## Build order
@@ -84,7 +85,18 @@ request, already failing.
 Still to do: it covers only tests that use the `requests` library, and tries one kind of
 wrong response. Changing the application itself (a real mutation) would be stronger.
 
-### Stage 4: a behaviour model of the backend
+### Stage 4: a behaviour model of the backend (first step done)
+
+Built: `python cli.py audit <dir>` builds one model of the application from source (routes
+with their visible access checks, frontend requests, spec operations, tables) and reports
+where the layers disagree, sorted into wrong now, likely to go wrong, unclear and not
+examined. See `app_audit.py` and `examples/audit-demo`.
+
+Still to do: everything below. The model stops at declarations. It does not follow a
+handler into the code it calls, so it cannot yet say which data a route reads or writes, or
+whether an ownership check runs. It has been run on a sample application only, not on a
+real codebase. Next: handler-to-table links, request and response shapes compared between
+frontend, spec and backend, and requirements linked to routes.
 
 Go beyond route decorators: which handler reads and writes which data, which checks run
 before it, what it returns on each path. Store this as a model the later stages query, so a

@@ -904,6 +904,23 @@ def cmd_chains(args):
     print(f"   Run with: pytest {output_file} -v")
 
 
+def cmd_audit(args):
+    """Application audit: do the frontend, backend, API spec and database agree?"""
+    import app_audit
+
+    if not Path(args.path).is_dir():
+        print(f"❌ Not a directory: {args.path}")
+        sys.exit(2)
+    report = app_audit.audit(app_audit.build_model(args.path))
+    markdown = app_audit.render_markdown(report)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    else:
+        print(markdown)
+    sys.exit(0 if report.ok else 1)
+
+
 def cmd_trace(args):
     """Requirement traceability: which requirement does each test check?"""
     import traceability
@@ -1342,6 +1359,14 @@ Examples:
         dest='test_data'
     )
 
+    # Application audit (roadmap stage 4, first version)
+    audit_parser = subparsers.add_parser(
+        'audit',
+        help='Check that the frontend, backend, API spec and database of an application agree'
+    )
+    audit_parser.add_argument('path', help='Root directory of the application source')
+    audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+
     # Traceability (roadmap stage 2)
     trace_parser = subparsers.add_parser(
         'trace',
@@ -1399,6 +1424,8 @@ Examples:
         cmd_chains(args)
     elif args.command == 'analyze-code':
         cmd_analyze_code(args)
+    elif args.command == 'audit':
+        cmd_audit(args)
     elif args.command == 'trace':
         cmd_trace(args)
     elif args.command == 'validate':

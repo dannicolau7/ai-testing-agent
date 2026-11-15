@@ -136,6 +136,29 @@ python cli.py validate tests/                  # does each test fail when the re
 
 Both exit 1 when they find gaps. `docs/ROADMAP.md` says where this is going.
 
+### Audit an application's source
+
+```bash
+python cli.py audit path/to/app            # do the frontend, backend, API spec and database agree?
+python cli.py audit examples/audit-demo    # a small sample with planted problems
+```
+
+`audit` reads the source and needs no model and no running application. It finds backend
+routes (FastAPI, Flask, Express), frontend requests (`fetch`, `axios`), OpenAPI specs and
+database tables (SQL `CREATE TABLE`, SQLAlchemy models), then reports where they disagree:
+
+- **Wrong now:** the frontend calls a route that does not exist; the spec documents an
+  operation nobody implemented; the spec says a route needs authentication and the code
+  shows no check.
+- **Likely to go wrong:** a route that changes data with no visible access check; a route
+  missing from the spec; a table with no primary key; an `_id` column with no foreign key.
+- **Unclear:** things the audit could not decide, for a person to look at.
+- **Not examined:** stated every time, including any layer it did not find.
+
+It exits 1 when there is a "wrong now" finding. It compares the layers with each other; it
+does not read handler logic or know your requirements, so a clean result means the layers
+agree, not that the product is right.
+
 From an OpenAPI spec (auto-detected by `.yaml` extension):
 
 ```bash

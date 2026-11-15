@@ -56,4 +56,5 @@ jobs:
             test_execute_tests.py \
             test_traceability.py \
             test_validation_check.py \
+            test_app_audit.py \
             -v --tb=short

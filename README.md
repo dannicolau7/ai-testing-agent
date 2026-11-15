@@ -269,7 +269,7 @@ proposed the right answer for seven and a wrong route for two, in about 20 secon
 CPU. That is why every proposal needs a person's confirmation.
 
 How well this works on code we did not write is recorded honestly in
-`docs/real-code-trial.md`.
+`docs/real-code-trial.md`, and checked on every change by `python trials/planted_faults.py`.
 
 It exits 1 when there is a "wrong now" finding. It compares the layers with each other; it
 reads data access but not the rest of the handler logic, and does not know your requirements, so a clean result means the layers

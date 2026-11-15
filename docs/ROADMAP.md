@@ -201,6 +201,9 @@ false); after the fixes they report two, one true and one open by design. With f
 faults planted in copies of those applications the audit finds 12, or 13 with a permissions
 table. Read it before believing any claim in this file about what the audit can do.
 
+The trials run on every change: `python trials/planted_faults.py`, and the `real-code` job
+in CI.
+
 JavaScript and TypeScript backends are read as text (`js_data_access.py`): Prisma calls and
 SQL strings. Query builders are not read.
 

@@ -219,3 +219,49 @@ def render_markdown(report: TraceReport) -> str:
                 lines.append(f"| {r.id} | {len(report.covered[r.id])} |")
         lines.append("")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def requirement_ids_of(test_case: dict) -> List[str]:
+    """Requirement ids a generated test case names, in order, without duplicates.
+
+    Only the `requirement_ids` field is read. Ids are never guessed from other text: a wrong
+    link is worse than a missing one, because it hides a gap.
+    """
+    raw = test_case.get("requirement_ids") if isinstance(test_case, dict) else None
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple)):
+        return []
+    ids: List[str] = []
+    for item in raw:
+        if isinstance(item, str):
+            ids += ID_PATTERN.findall(item)
+    return list(dict.fromkeys(ids))
+
+
+def tag_with_requirements(source: str, requirement_ids: Sequence[str]) -> str:
+    """Put a `# Requirement: ...` comment above every test function in generated code.
+
+    Tests that already point at a requirement are left alone. Code that cannot be parsed is
+    returned unchanged.
+    """
+    if not requirement_ids:
+        return source
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source
+    already = {t.line for t in scan_test_source(source, "generated") if t.requirements}
+    lines = source.splitlines()
+    comment = "# Requirement: " + ", ".join(requirement_ids)
+    targets = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+            if node.lineno not in already:
+                first = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                targets.append(first)
+    for line_number in sorted(set(targets), reverse=True):
+        text = lines[line_number - 1]
+        indent = text[: len(text) - len(text.lstrip())]
+        lines.insert(line_number - 1, indent + comment)
+    return "\n".join(lines) + ("\n" if source.endswith("\n") else "")

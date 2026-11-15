@@ -42,6 +42,9 @@ except ImportError:
     ANTHROPIC_AVAILABLE = False
 
 
+from traceability import requirement_ids_of, tag_with_requirements  # noqa: E402
+
+
 class AITestingAgent:
     """
     Autonomous AI agent for test automation.
@@ -315,6 +318,7 @@ Return ONLY a valid JSON object in this EXACT format with no extra text:
   "test_cases": [
     {{
       "test_id": "TC001",
+      "requirement_ids": ["REQ-1"],
       "test_name": "test_example",
       "description": "What this test verifies",
       "type": "integration",
@@ -340,6 +344,11 @@ Rules for the "endpoint" field:
 - "body_type": "json", "form_data", "url_encoded", or "query_params"
 - "params": object mapping each field name to its type info
 - Omit "endpoint" only if the test is not about an HTTP API call
+
+Rules for the "requirement_ids" field:
+- List the ids of the requirements this test checks, exactly as they appear in the
+  requirements (for example REQ-12, US-7, AC-2.1)
+- Use an empty list if the requirements carry no ids. Never invent an id
 
 Generate 3-5 test cases covering positive, negative, and edge cases."""
 
@@ -470,6 +479,9 @@ Return ONLY the raw Python code. Do NOT include markdown fences, explanations, o
 
                 pytest_code = self._extract_python_code(str(pytest_code))
                 print(f"  ✓ Generated {test_case.get('test_id', i)} via AI")
+
+            # Tie the generated tests to the requirements they check, so `trace` can read it.
+            pytest_code = tag_with_requirements(pytest_code, requirement_ids_of(test_case))
 
             # Save to file
             filename = f"test_{test_case.get('test_id', i)}.py"

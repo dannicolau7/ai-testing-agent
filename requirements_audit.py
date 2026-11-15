@@ -120,8 +120,9 @@ def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] =
     result = RequirementsResult(total=len(requirements))
     known = {r.id for r in requirements}
     by_handler = _handler_references(model)
-    add = lambda group, title, detail, where: result.findings.append(  # noqa: E731
-        app_audit.Finding(group, title, detail, where))
+    def add(group, title, detail, where, check="", method="", path="", requirement=""):
+        result.findings.append(app_audit.Finding(group, title, detail, where, check, method, path, requirement))
+
     traced_routes: Set[int] = set()
 
     for index, ids in by_handler.items():
@@ -166,7 +167,8 @@ def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] =
                         routes.append(r)
         for name in missing:
             add("wrong_now", f"{req.id} describes {name}, which the backend does not define",
-                f"\u201c{req.text[:140]}\u201d Nothing implements this route.", f"requirements line {req.line}")
+                f"\u201c{req.text[:140]}\u201d Nothing implements this route.", f"requirements line {req.line}",
+                check="exists", method=name.split(" ", 1)[0], path=name.split(" ", 1)[1], requirement=req.id)
 
         checked: List[str] = []
         problems: List[str] = []
@@ -180,7 +182,8 @@ def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] =
                     problems.append("no access check")
                     add("wrong_now", f"{req.id} requires sign-in, but {route.method} {route.path} shows no access check",
                         f"\u201c{text[:140]}\u201d No dependency, decorator or middleware on this route looks like "
-                        "an access check.", app_audit._where(route))
+                        "an access check.", app_audit._where(route),
+                        check="refuses_anonymous", method=route.method, path=route.path, requirement=req.id)
                     result.supersedes.add(f"{route.method} {route.path} changes data and shows no access check")
         if routes and ("ownership" in wanted or OWN.search(text)):
             checked.append("ownership")
@@ -191,7 +194,8 @@ def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] =
                     problems.append("no ownership check")
                     add("wrong_now", f"{req.id} limits {route.method} {route.path} to the owner, but the code does not check who owns the row",
                         f"\u201c{text[:140]}\u201d `{table.name}` has an owner column (`{owner}`), and nothing this "
-                        "handler runs compares it or filters on it.", f"{access.file}:{access.line}")
+                        "handler runs compares it or filters on it.", f"{access.file}:{access.line}",
+                        check="owner_only", method=route.method, path=route.path, requirement=req.id)
                     result.supersedes.add(app_audit.ownership_title(route, table, access))
                 elif route.data is None or not route.data.accesses:
                     checked[-1] = "ownership (could not be read)"

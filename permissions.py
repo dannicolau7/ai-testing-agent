@@ -139,7 +139,9 @@ def shown(route: app_audit.Route, roles: List[str]) -> Shown:
 
 def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding]:
     out: List[app_audit.Finding] = []
-    add = lambda group, title, detail, where: out.append(app_audit.Finding(group, title, detail, where))  # noqa: E731
+    def add(group, title, detail, where, check="", method="", path=""):
+        out.append(app_audit.Finding(group, title, detail, where, check, method, path))
+
     for problem in policy.problems:
         add("wrong_now", "The permissions file has a mistake", problem, "permissions file")
     signed_in_roles = [r for r in policy.roles if r != ANONYMOUS]
@@ -158,7 +160,8 @@ def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding
             if ANONYMOUS not in rule.allow and not seen.signed_in:
                 add("wrong_now", f"{name} must refuse a caller who is not signed in, but the code shows no access check",
                     f"Allowed: {', '.join(rule.allow) or 'nobody'}. No dependency, decorator or middleware on "
-                    "this route looks like an access check.", where)
+                    "this route looks like an access check.", where,
+                    check="refuses_anonymous", method=route.method, path=route.path)
                 continue
             if ANONYMOUS in rule.allow and seen.signed_in:
                 add("likely", f"{name} is meant to be open to everyone, but the code asks for sign-in",
@@ -183,7 +186,7 @@ def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding
                     table, owner, access = gap
                     add("wrong_now", f"{name} is limited to the owner's rows, but the code does not check who owns the row",
                         f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs compares it or filters on it.",
-                        f"{access.file}:{access.line}")
+                        f"{access.file}:{access.line}", check="owner_only", method=route.method, path=route.path)
                 elif route.data is None or not route.data.accesses:
                     add("unclear", f"{name} is limited to the owner's rows, and the handler's data access could not be read",
                         "The ownership check could not be looked for.", where)

@@ -126,6 +126,17 @@ class Finding:
     title: str
     detail: str
     where: str
+    # What a test on a running system would have to show for this finding to be real. Empty
+    # when no test can be written from the finding alone.
+    #   exists            the route answers at all (not 404 or 405)
+    #   refuses_anonymous a caller who is not signed in is refused
+    #   owner_only        a signed-in user who does not own the row is refused
+    check: str = ""
+    method: str = ""
+    path: str = ""
+    requirement: str = ""
+
+
 
 
 @dataclass
@@ -979,7 +990,8 @@ def _audit_data_access(model: AppModel, add) -> None:
             add("likely", ownership_title(route, table, access),
                 f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs "
                 "compares it or filters on it. A signed-in user may be able to reach another user's "
-                "row by changing the id.", f"{access.file}:{access.line}")
+                "row by changing the id.", f"{access.file}:{access.line}",
+                check="owner_only", method=route.method, path=route.path)
 
     if followed and touched and model.tables:
         for table in model.tables:
@@ -1030,8 +1042,9 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
     check what each requirement says against the code it is linked to."""
     report = AuditReport(model=model)
     report.requirements = None
-    add = lambda group, title, detail, where: report.findings.append(  # noqa: E731
-        Finding(group, title, detail, where))
+    def add(group, title, detail, where, check="", method="", path="", requirement=""):
+        report.findings.append(Finding(group, title, detail, where, check, method, path, requirement))
+
     route_keys = {r.key for r in model.routes}
     spec_keys = {o.key for o in model.spec_operations}
     call_keys = {c.key for c in model.calls if c.path}
@@ -1053,14 +1066,16 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
                 other = sorted(m for m, p in route_keys if _match((m, call.key[1]), {(m, p)}))
                 hint = f" The backend defines {', '.join(other)} for that path." if other else ""
                 add("wrong_now", f"The frontend calls {call.method} {_show(call.path)}, which no backend route defines",
-                    "A user action that makes this request will fail." + hint, _where(call))
+                    "A user action that makes this request will fail." + hint, _where(call),
+                    check="exists", method=call.method, path=_show(call.path))
 
     # Spec against backend.
     if model.spec_operations and model.routes:
         for op in model.spec_operations:
             if not _match(op.key, route_keys):
                 add("wrong_now", f"The API spec documents {op.method} {op.path}, which the backend does not implement",
-                    "Anyone building against the spec will call something that is not there.", op.file)
+                    "Anyone building against the spec will call something that is not there.", op.file,
+                    check="exists", method=op.method, path=op.path)
         for route in model.routes:
             if not _match(route.key, spec_keys):
                 add("likely", f"{route.method} {route.path} is not in the API spec",
@@ -1076,12 +1091,13 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
             documented = [o for o in model.spec_operations if o.key == route.key and o.auth_evidence]
             if documented:
                 add("wrong_now", f"The spec says {route.method} {route.path} needs authentication, but the code shows no check",
-                    "No dependency, decorator or middleware on this route looks like an access check.", _where(route))
+                    "No dependency, decorator or middleware on this route looks like an access check.", _where(route),
+                    check="refuses_anonymous", method=route.method, path=route.path)
             else:
                 add("likely", f"{route.method} {route.path} changes data and shows no access check",
                     "No dependency, decorator or middleware on this route looks like an access check. "
                     "It may be applied somewhere this audit cannot see, such as a global middleware.",
-                    _where(route))
+                    _where(route), check="refuses_anonymous", method=route.method, path=route.path)
 
     # Backend routes the frontend never uses.
     if model.routes and model.calls:

@@ -64,6 +64,7 @@ jobs:
             test_permissions.py \
             test_audit_diff.py \
             test_full_report.py \
+            test_real_code_patterns.py \
             -v --tb=short
 
   browser:

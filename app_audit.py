@@ -48,7 +48,7 @@ MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 MAX_FILE_BYTES = 1_000_000
 # Names that suggest a route checks who is calling. Evidence, not proof.
 AUTH_WORDS = re.compile(
-    r"auth|login|logged|current_user|get_user|token|jwt|session|permission|role|admin|"
+    r"auth|login|logged|current_user|current_active|get_user|superuser|token|jwt|session|permission|role|admin|"
     r"require|verify|protect|guard|api_key|apikey|oauth|bearer|principal|identity",
     re.IGNORECASE,
 )
@@ -67,6 +67,7 @@ class Route:
     data: Optional[data_access.HandlerData] = None
     # The request and response this route declares. None when the source does not state it.
     shape: Optional[shapes.Shape] = None
+    router: str = ""  # the variable the route is declared on (app, router), to apply its prefix
 
     @property
     def key(self) -> Tuple[str, str]:
@@ -184,6 +185,22 @@ def _read(path: Path) -> str:
 # ── Backend: Python ───────────────────────────────────────────────────────────
 
 
+def parse_python(source: str) -> ast.AST:
+    """Parse Python source, including syntax newer than the Python running this audit.
+
+    Python 3.14 allows `except A, B:` without brackets. An older interpreter refuses the
+    whole file for it, and a file that is not read means its access checks are not seen.
+    """
+    try:
+        return ast.parse(source)
+    except SyntaxError:
+        patched = re.sub(r"^(\s*except\s+)([\w.]+(?:\s*,\s*[\w.]+)+)(\s*(?:as\s+\w+\s*)?:)",
+                         r"\1(\2)\3", source, flags=re.MULTILINE)
+        if patched == source:
+            raise
+        return ast.parse(patched)
+
+
 def _const(node: Optional[ast.AST]) -> Optional[str]:
     return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
 
@@ -208,8 +225,47 @@ def _depends_names(func: ast.AST) -> List[str]:
     return [n for n in names if n]
 
 
-def _auth_evidence(func: ast.AST, decorators: List[ast.AST]) -> List[str]:
+def annotated_aliases(trees) -> Dict[str, str]:
+    """Type aliases that carry a dependency: CurrentUser = Annotated[User, Depends(get_current_user)]."""
+    aliases: Dict[str, str] = {}
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            target = value = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            if isinstance(target, ast.Name) and isinstance(value, ast.Subscript) and _name(value.value).split(".")[-1] == "Annotated":
+                for name in _depends_names(value):
+                    aliases[target.id] = name
+    return aliases
+
+
+def alias_types(trees) -> Dict[str, str]:
+    """What an Annotated alias stands for: CurrentUser = Annotated[User, Depends(...)] → User."""
+    types: Dict[str, str] = {}
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                    and isinstance(node.value, ast.Subscript) and _name(node.value.value).split(".")[-1] == "Annotated"):
+                inner = node.value.slice
+                first = inner.elts[0] if isinstance(inner, ast.Tuple) and inner.elts else inner
+                if _name(first):
+                    types[node.targets[0].id] = _name(first).split(".")[-1]
+    return types
+
+
+def _auth_evidence(func: ast.AST, decorators: List[ast.AST], aliases: Optional[Dict[str, str]] = None) -> List[str]:
     evidence = []
+    # A parameter typed with an alias such as CurrentUser depends on whatever the alias names.
+    args = getattr(func, "args", None)
+    for arg in (args.posonlyargs + args.args + args.kwonlyargs) if args and aliases else []:
+        alias = _name(arg.annotation) if arg.annotation is not None else ""
+        dep = aliases.get(alias.split(".")[-1])
+        if dep:
+            last = dep.split(".")[-1]
+            if AUTH_WORDS.search(last) and not NOT_AUTH.match(last):
+                evidence.append(f"Depends({dep})")
     for name in _depends_names(func):
         last = name.split(".")[-1]
         if AUTH_WORDS.search(last) and not NOT_AUTH.match(last):
@@ -224,9 +280,9 @@ def _auth_evidence(func: ast.AST, decorators: List[ast.AST]) -> List[str]:
     return evidence
 
 
-def python_routes(source: str, filename: str) -> List[Route]:
+def python_routes(source: str, filename: str, aliases: Optional[Dict[str, str]] = None) -> List[Route]:
     try:
-        tree = ast.parse(source)
+        tree = parse_python(source)
     except SyntaxError:
         return []
     routes = []
@@ -248,10 +304,108 @@ def python_routes(source: str, filename: str) -> List[Route]:
                     if kw.arg == "methods" and isinstance(kw.value, (ast.List, ast.Tuple)):
                         methods = [m.upper() for m in (_const(e) for e in kw.value.elts) if m]
                 methods = methods or ["GET"]
-            evidence = _auth_evidence(node, node.decorator_list) if methods else []
+            evidence = _auth_evidence(node, node.decorator_list, aliases) if methods else []
             for method in methods:
-                routes.append(Route(method, path, filename, node.lineno, node.name, list(evidence)))
+                routes.append(Route(method, path, filename, node.lineno, node.name, list(evidence),
+                                    router=_name(decorator.func.value)))
     return routes
+
+
+def _string_constants(trees) -> Dict[str, str]:
+    """Names given one string value in the project: API_V1_STR: str = "/api/v1"."""
+    found: Dict[str, Optional[str]] = {}
+    for _, tree in trees:
+        for node in ast.walk(tree):
+            target = value = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1:
+                target, value = node.targets[0], node.value
+            elif isinstance(node, ast.AnnAssign):
+                target, value = node.target, node.value
+            text = _const(value) if value is not None else None
+            if isinstance(target, ast.Name) and text is not None:
+                found[target.id] = text if target.id not in found or found[target.id] == text else None
+    return {k: v for k, v in found.items() if v is not None}
+
+
+def apply_router_prefixes(routes: List[Route], trees) -> None:
+    """Give each route its full path: APIRouter(prefix=...) and include_router(..., prefix=...).
+
+    Dependencies declared on a router or an include apply to every route under it, so they
+    are added to the route's evidence of an access check.
+    """
+    constants = _string_constants(trees)
+
+    def text_of(node: Optional[ast.AST]) -> str:
+        if node is None:
+            return ""
+        direct = _const(node)
+        if direct is not None:
+            return direct
+        return constants.get(_name(node).split(".")[-1], "")
+
+    def evidence_of(call: ast.Call) -> List[str]:
+        out = []
+        for kw in call.keywords:
+            if kw.arg == "dependencies":
+                for name in _depends_names(kw.value):
+                    last = name.split(".")[-1]
+                    if AUTH_WORDS.search(last) and not NOT_AUTH.match(last):
+                        out.append(f"Depends({name})")
+        return out
+
+    own: Dict[Tuple[str, str], Tuple[str, List[str]]] = {}        # (file, variable) → prefix, evidence
+    includes: List[Tuple[str, str, ast.AST, str, List[str]]] = []  # file, parent, child node, prefix, evidence
+    for file, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.value, ast.Call):
+                kind = _name(node.value.func).split(".")[-1]
+                if kind in ("APIRouter", "FastAPI", "Blueprint") and isinstance(node.targets[0], ast.Name):
+                    keyword = "url_prefix" if kind == "Blueprint" else "prefix"
+                    prefix = next((text_of(k.value) for k in node.value.keywords if k.arg == keyword), "")
+                    own[(file, node.targets[0].id)] = (prefix, evidence_of(node.value))
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr in ("include_router", "register_blueprint") and node.args):
+                keyword = "url_prefix" if node.func.attr == "register_blueprint" else "prefix"
+                prefix = next((text_of(k.value) for k in node.keywords if k.arg == keyword), "")
+                includes.append((file, _name(node.func.value), node.args[0], prefix, evidence_of(node)))
+
+    def child_key(file: str, node: ast.AST) -> Optional[Tuple[str, str]]:
+        if isinstance(node, ast.Name):
+            if (file, node.id) in own:
+                return file, node.id
+            matches = [k for k in own if k[1] == node.id]
+            return matches[0] if len(matches) == 1 else None
+        if isinstance(node, ast.Attribute):          # items.router → the router in items.py
+            module = _name(node.value).split(".")[-1]
+            matches = [k for k in own if k[1] == node.attr and Path(k[0]).stem == module]
+            return matches[0] if len(matches) == 1 else None
+        return None
+
+    parents: Dict[Tuple[str, str], Tuple[Tuple[str, str], str, List[str]]] = {}
+    for file, parent, child, prefix, evidence in includes:
+        key = child_key(file, child)
+        parent_key = (file, parent) if (file, parent) in own else None
+        if key is not None and key not in parents:
+            parents[key] = (parent_key, prefix, evidence)
+
+    def resolve(key, depth: int = 0) -> Tuple[str, List[str]]:
+        prefix, evidence = own.get(key, ("", []))
+        if key in parents and depth < 8:
+            parent_key, include_prefix, include_evidence = parents[key]
+            above, above_evidence = resolve(parent_key, depth + 1) if parent_key else ("", [])
+            return above + include_prefix + prefix, above_evidence + include_evidence + evidence
+        return prefix, list(evidence)
+
+    for route in routes:
+        if not route.router or not route.file.endswith(".py"):
+            continue
+        prefix, evidence = resolve((route.file, route.router.split(".")[-1]))
+        if prefix:
+            route.path = (prefix.rstrip("/") + "/" + route.path.lstrip("/")) if route.path not in ("", "/") \
+                else prefix.rstrip("/") + route.path
+        for item in evidence:
+            if item not in route.auth_evidence:
+                route.auth_evidence.append(item)
 
 
 # ── Backend and frontend: JavaScript / TypeScript ─────────────────────────────
@@ -261,6 +415,9 @@ _EXPRESS = re.compile(
 )
 _FETCH = re.compile(r"\bfetch\(\s*(['\"`])((?:\\.|(?!\1).)*)\1\s*(?:,\s*\{([^}]*)\})?", re.DOTALL)
 _AXIOS = re.compile(r"\baxios\.(get|post|put|patch|delete)\(\s*(['\"`])((?:\\.|(?!\2).)*)\2", re.IGNORECASE)
+_CLIENT_CALL = re.compile(r"\.(get|post|put|patch|delete)\s*(?:<[^;(){}]*>)?\s*\(\s*\{", re.IGNORECASE)
+_METHOD_URL = re.compile(
+    r"\bmethod\s*:\s*['\"`](GET|POST|PUT|PATCH|DELETE)['\"`]\s*,\s*url\s*:\s*(['\"`])((?:\\.|(?!\2).)*)\2", re.IGNORECASE)
 _FETCH_DYNAMIC = re.compile(r"\bfetch\(\s*([A-Za-z_$][\w$.]*)\s*[,)]")
 _METHOD_OPTION = re.compile(r"method\s*:\s*['\"`](\w+)['\"`]", re.IGNORECASE)
 _EXPRESS_OBJECTS = {"app", "router", "api", "server", "routes"}
@@ -303,6 +460,17 @@ def js_calls(source: str, filename: str) -> List[ApiCall]:
         calls.append(ApiCall(m.group(1).upper(), _url_path(m.group(3)), filename,
                              _line(source, m.start()), m.group(3)[:80],
                              shapes.call_shape(source, m.start(), m.group(3), m.group(1))))
+    # Generated API clients: client.get({ url: '/api/items' }) and request({ method: 'GET', url: '/api/items' }).
+    for m in _CLIENT_CALL.finditer(source):
+        block = shapes._balanced(source, m.end() - 1)
+        url = re.search(r"\burl\s*:\s*(['\"`])((?:\\.|(?!\1).)*)\1", block)
+        if url and _url_path(url.group(2)):
+            calls.append(ApiCall(m.group(1).upper(), _url_path(url.group(2)), filename, _line(source, m.start()),
+                                 url.group(2)[:80], shapes.Shape(source="the frontend")))
+    for m in _METHOD_URL.finditer(source):
+        if _url_path(m.group(3)):
+            calls.append(ApiCall(m.group(1).upper(), _url_path(m.group(3)), filename, _line(source, m.start()),
+                                 m.group(3)[:80], shapes.Shape(source="the frontend")))
     for m in _FETCH_DYNAMIC.finditer(source):
         calls.append(ApiCall("?", "", filename, _line(source, m.start()), m.group(1)[:80]))
     return calls
@@ -412,7 +580,7 @@ def sql_tables(source: str, filename: str) -> List[Table]:
 
 def sqlalchemy_tables(source: str, filename: str) -> List[Table]:
     try:
-        tree = ast.parse(source)
+        tree = parse_python(source)
     except SyntaxError:
         return []
     tables = []
@@ -451,6 +619,59 @@ def sqlalchemy_tables(source: str, filename: str) -> List[Table]:
     return tables
 
 
+def sqlmodel_tables(trees) -> List[Table]:
+    """SQLModel tables: class User(UserBase, table=True), with columns inherited from its bases."""
+    classes: Dict[str, Tuple[str, ast.ClassDef]] = {}
+    for file, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                classes.setdefault(node.name, (file, node))
+
+    def columns_of(node: ast.ClassDef, depth: int = 0) -> List[Column]:
+        columns: Dict[str, Column] = {}
+        for base in node.bases:
+            parent = classes.get(_name(base).split(".")[-1])
+            if parent is not None and depth < 8:
+                for column in columns_of(parent[1], depth + 1):
+                    columns[column.name] = column
+        for stmt in node.body:
+            if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                continue
+            name, value = stmt.target.id, stmt.value
+            if name.startswith("_") or name in ("model_config", "__tablename__"):
+                continue
+            call = _name(value.func).split(".")[-1] if isinstance(value, ast.Call) else ""
+            if call == "Relationship":
+                continue          # a link to another model, not a column
+            annotation = ast.dump(stmt.annotation)
+            column = Column(name=name, nullable="None" in annotation or "Optional" in annotation)
+            if call == "Field":
+                for kw in value.keywords:
+                    flag = kw.value.value if isinstance(kw.value, ast.Constant) else None
+                    if kw.arg == "primary_key" and flag is True:
+                        column.primary_key, column.nullable = True, False
+                    elif kw.arg == "nullable" and isinstance(flag, bool):
+                        column.nullable = flag
+                    elif kw.arg == "unique" and flag is True:
+                        column.unique = True
+                    elif kw.arg == "foreign_key" and isinstance(flag, str):
+                        column.foreign_key = flag
+            columns[name] = column
+        return list(columns.values())
+
+    tables = []
+    for name, (file, node) in classes.items():
+        if not any(k.arg == "table" and isinstance(k.value, ast.Constant) and k.value.value is True for k in node.keywords):
+            continue
+        table_name = name.lower()
+        for stmt in node.body:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and _name(
+                    stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target) == "__tablename__":
+                table_name = _const(stmt.value) or table_name
+        tables.append(Table(table_name, file, node.lineno, columns_of(node), name))
+    return tables
+
+
 # ── Model ─────────────────────────────────────────────────────────────────────
 
 
@@ -474,25 +695,33 @@ def build_model(root_path: str) -> AppModel:
     root = Path(root_path).resolve()
     model = AppModel(root=str(root))
     trees: List[Tuple[str, ast.AST]] = []
+    sources: List[Tuple[str, str]] = []
     for path in _files(root, (".py",), model):
         source, rel = _read(path), str(path.relative_to(root))
-        if path.name.startswith("test_") or path.name.endswith("_test.py") or "tests" in path.parts:
+        if (path.name.startswith("test_") or path.name.endswith("_test.py") or path.name == "conftest.py"
+                or "tests" in path.parts or "test" in path.parts or "migrations" in path.parts
+                or "alembic" in path.parts):
             continue
         model.files_read += 1
-        model.routes += python_routes(source, rel)
-        model.tables += sqlalchemy_tables(source, rel)
         try:
-            tree = ast.parse(source)
+            tree = parse_python(source)
         except SyntaxError:
             model.files_skipped.append(f"{rel} (could not be parsed as Python)")
             continue
         trees.append((rel, tree))
+        sources.append((rel, source))
+    aliases = annotated_aliases(trees)
+    for (rel, source), (_, tree) in zip(sources, trees):
+        model.routes += python_routes(source, rel, aliases)
+        model.tables += sqlalchemy_tables(source, rel)
         # Tables created from Python, as in db.execute("CREATE TABLE ...").
         for node in ast.walk(tree):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and "CREATE TABLE" in node.value.upper():
                 for table in sql_tables(node.value, rel):
                     table.line += node.lineno - 1
                     model.tables.append(table)
+    model.tables += sqlmodel_tables(trees)
+    apply_router_prefixes(model.routes, trees)
     _attach_handler_data(model, trees)
     types: Dict[str, Tuple[Dict[str, bool], bool]] = {}
     for path in _files(root, (".js", ".jsx", ".ts", ".tsx", ".mjs", ".vue", ".svelte"), model):
@@ -517,6 +746,9 @@ def build_model(root_path: str) -> AppModel:
             model.spec_files.append(str(path.relative_to(root)))
             model.spec_operations += operations
     classes = {t.model_class: t.name for t in model.tables if t.model_class}
+    for alias, cls in alias_types(trees).items():      # a variable typed CurrentUser holds a User
+        if cls in classes:
+            classes.setdefault(alias, classes[cls])
     for route in model.routes:
         if route.data is None:
             continue
@@ -551,6 +783,11 @@ def _match(key: Tuple[str, str], keys: Set[Tuple[str, str]]) -> bool:
                for m, p in keys)
 
 
+# Routes that exist to be called before sign-in. No access check is expected on them.
+PUBLIC_BY_NATURE = re.compile(
+    r"log-?in|sign-?in|sign-?up|register|access[-_]token|refresh[-_]token|oauth|sso|"
+    r"password[-_]?(recovery|reset)|(reset|forgot|recover)[-_]?password|verify[-_]?email|confirm[-_]?email|"
+    r"webhook|callback", re.IGNORECASE)
 # Routes a frontend is not expected to call.
 OPERATIONAL = re.compile(r"^/$|^/(health|healthz|ready|readyz|live|livez|metrics|ping|status|docs|openapi\.json)$")
 # A column that says whose row this is.
@@ -733,8 +970,12 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
                     "An undocumented route is easy to change or break without anyone noticing.", _where(route))
 
     # Routes that change data with no sign of an access check.
+    public: List[str] = []
     for route in model.routes:
         if route.method in MUTATING and not route.auth_evidence:
+            if PUBLIC_BY_NATURE.search(route.path) or PUBLIC_BY_NATURE.search(route.handler):
+                public.append(f"{route.method} {route.path}")
+                continue
             documented = [o for o in model.spec_operations if o.key == route.key and o.auth_evidence]
             if documented:
                 add("wrong_now", f"The spec says {route.method} {route.path} needs authentication, but the code shows no check",
@@ -792,6 +1033,10 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
         "Access checks applied globally (middleware, gateways) or in languages other than Python and JavaScript/TypeScript.",
         "Frontend requests made through wrappers other than fetch and axios.",
     ]
+    if public:
+        report.not_examined.append(
+            "Sign-in, sign-up and password-reset routes were taken to be open by design and not reported "
+            "for having no access check: " + ", ".join(public) + ". Check they limit repeated attempts.")
     report.not_examined += [f"Skipped: {item}" for item in model.files_skipped]
     if requirements is not None:
         import requirements_audit

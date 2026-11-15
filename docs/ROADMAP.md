@@ -193,6 +193,13 @@ been run in a real repository.
 Run the audit on each pull request and report only what changed: new gaps, tests that no
 longer validate, requirements that lost coverage.
 
+## Trials on real code
+
+`docs/real-code-trial.md` records the first run on an application we did not write. The
+first attempt was wrong about almost everything (17 findings, 16 false); after teaching the
+readers how real FastAPI projects are written it reports one finding, which is true. Read
+it before believing any claim in this file about what the audit can do.
+
 ## One report (built)
 
 `python cli.py full-report` puts the results of `audit`, `browse`, `trace` and `validate`

@@ -1,4 +1,6 @@
-# First trial on a real application
+# Trials on real applications
+
+## Trial 1: a FastAPI application
 
 Until this trial the audit had only been run on its own sample application and on two small
 projects of ours. This is the first run on code written by someone else, with no knowledge
@@ -69,9 +71,88 @@ column is right for all 22 routes on inspection.
 - **The fixes were made by looking at this application.** They are general FastAPI
   patterns, but the second real application is the fairer test.
 
+## Trial 2: a Flask application and an Express application
+
+The fairer test: two applications in styles the audit had not been adjusted for. The first
+run was recorded before anything was changed.
+
+- **Flask:** the tutorial application in `pallets/flask` (`examples/tutorial`, BSD-3-Clause),
+  commit `49943b5`. Blueprints, raw SQL on SQLite, server-rendered pages. 12 routes, 2 tables.
+- **Express:** `gothinkster/node-express-realworld-example-app` (MIT), commit `30b68e1`.
+  TypeScript, Prisma, JWT middleware. 20 routes, 8 tables.
+
+| | Flask, first run | Express, first run |
+|---|---|---|
+| Routes read correctly | 12 of 12 | 20 of 20 (without the `/api` mount prefix) |
+| Tables read | 2 of 2 | 8 of 8 |
+| Findings | 6 | 12 |
+| Of which false | 6 | 11, and 1 open by design |
+
+Better than Trial 1's first run, since paths, tables and decorators were right, but every
+finding was still false or unhelpful. The causes:
+
+| False finding | Why |
+|---|---|
+| "GET changes data" (Flask, 3) | One Flask handler serves GET and POST and writes only on POST |
+| "No ownership check" (Flask, 3) | The check is written `post["author_id"] != g.user["id"]`; dictionary keys were not read |
+| "No access check" (Express, 8) | A formatter had put the route over several lines, and the middleware was on a later line |
+| "No primary key" (Express, 3) | Join tables keyed by a unique index that a later statement adds |
+| "No access check" on `POST /users` (Express, 1) | Sign-up, open by design; the path does not say so |
+
+After the fixes: Flask reports nothing, Express reports the sign-up route only. Each fix has
+a regression test.
+
+## Trial 3: planted faults
+
+Trials 1 and 2 show what the audit wrongly reports. They do not show what it misses, because
+these applications have few faults. So fourteen realistic faults were planted, one at a
+time, in copies of the three applications, and the audit was run on each copy.
+
+| Planted fault | Found |
+|---|---|
+| FastAPI: sign-in removed from "create item" | Yes |
+| FastAPI: owner check removed from "read item" | Yes |
+| FastAPI: frontend calls a route that was renamed | Yes |
+| FastAPI: backend route removed that the frontend calls | Yes |
+| FastAPI: superuser check removed from "delete user" | Only with a permissions table |
+| FastAPI: foreign key dropped from `item.owner_id` | **No** |
+| Flask: `login_required` removed from "delete" | Yes |
+| Flask: author check removed | Yes |
+| Flask: query uses a column that does not exist | Yes |
+| Flask: query uses a table that does not exist | Yes |
+| Flask: SQL built from a request value | Yes |
+| Express: auth removed from "delete article" | Yes |
+| Express: auth made optional on "update article" | Yes |
+| Express: owner check removed from "delete article" | **No** |
+
+**11 of 14 with no inputs, 12 of 14 with a permissions table.**
+
+The misses, and why:
+
+- **Superuser check removed.** The route still asks for sign-in, so nothing looks wrong
+  until a permissions table says ordinary users must be refused. This is what the table is for.
+- **Foreign key dropped.** The column is `owner_id` and the table is `user`. The audit
+  only treats an `_id` column as a reference when a table of that name exists, a rule added
+  earlier to stop false alarms. Here it costs a real finding.
+- **Express owner check.** The check is in a TypeScript service using Prisma. The audit
+  does not read data access in JavaScript or TypeScript at all.
+
+## What these trials do not show
+
+- **Three applications, all small and well kept.** Larger and messier code will expose more.
+- **The planted faults were chosen by the person who wrote the audit.** They are the kinds
+  of fault it was built to find. An outsider's list would score lower.
+- **Nothing was run.** No application was started, so the browser check and the generated
+  permission tests were not used.
+- **No requirements document.** None of these projects has one, so the requirements checks
+  are still untested on real material.
+
 ## What to take from it
 
-The gap between "works on our sample" and "works on real code" was large, and one run
-on one real project closed more of it than more work on the sample would have.
-The next real application should be one we have not seen, in a different style: Flask or
-Django, or an Express backend.
+The gap between "works on our sample" and "works on real code" was large: 17 findings with
+16 false on the first application, then 18 findings with 17 false on the next two. Each
+round on real code removed a class of false alarm that no amount of work on the sample
+would have shown.
+
+The largest known hole is data access in JavaScript and TypeScript backends. After that:
+Django, request shapes through generated clients, and a real requirements document.

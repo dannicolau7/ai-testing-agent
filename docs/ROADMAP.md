@@ -195,10 +195,13 @@ longer validate, requirements that lost coverage.
 
 ## Trials on real code
 
-`docs/real-code-trial.md` records the first run on an application we did not write. The
-first attempt was wrong about almost everything (17 findings, 16 false); after teaching the
-readers how real FastAPI projects are written it reports one finding, which is true. Read
-it before believing any claim in this file about what the audit can do.
+`docs/real-code-trial.md` records three trials on applications we did not write: FastAPI,
+Flask and Express. First runs were mostly false alarms (35 findings across the three, 33
+false); after the fixes they report two, one true and one open by design. With fourteen
+faults planted in copies of those applications the audit finds 11, or 12 with a permissions
+table. Read it before believing any claim in this file about what the audit can do.
+
+Largest known hole: data access in JavaScript and TypeScript backends is not read.
 
 ## One report (built)
 

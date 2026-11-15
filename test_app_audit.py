@@ -45,11 +45,18 @@ def test_planted_problems_are_found_and_sorted():
         "The spec says DELETE /api/orders/{order_id} needs authentication, but the code shows no check",
         "The code uses column `orders.status`, which the table does not have",
         "The code uses table `search_jobs`, which the database does not define",
+        "POST /api/orders: the backend requires `coupon`, which the spec does not list",
+        "GET /api/orders/{order_id}: the spec promises `status` in the response, which the backend does not return",
+        "POST /api/orders: the frontend does not send `coupon`, which the backend requires",
     ]
     assert _titles(report, "likely") == [
         "POST /api/admin/reindex is not in the API spec",
         "SQL on `orders` is built by inserting a function argument into the text",
         "GET /api/orders/{order_id} reads `orders` without checking who owns the row",
+        "POST /api/orders: the spec lists `gift_wrap`, which the backend does not accept",
+        "GET /api/orders/{order_id}: the backend returns `internal_margin`, which the spec does not mention",
+        "GET /api/orders: the frontend sends the query parameter `page`, which the backend does not read",
+        "POST /api/orders: the frontend sends `giftWrap`, which the backend does not accept",
         "orders.shipping_address_id looks like a reference but has no foreign key",
         "Table order_events has no primary key",
     ]
@@ -61,7 +68,7 @@ def test_planted_problems_are_found_and_sorted():
     ]
     assert not report.ok
     markdown = app_audit.render_markdown(report)
-    assert "## Wrong now (6)" in markdown and "## Not examined" in markdown
+    assert "## Wrong now (9)" in markdown and "## Not examined" in markdown
     assert "The backend defines DELETE, GET for that path." in markdown
     assert "not that the product is right" in markdown
     assert "| Routes whose data access was found | 5 of 5 |" in markdown
@@ -145,7 +152,7 @@ def test_command_line(tmp_path):
         [sys.executable, "cli.py", "audit", str(DEMO), "-o", str(out)], capture_output=True, text=True
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "## Wrong now (6)" in out.read_text()
+    assert "## Wrong now (9)" in out.read_text()
     missing = subprocess.run(
         [sys.executable, "cli.py", "audit", str(tmp_path / "nope")], capture_output=True, text=True
     )

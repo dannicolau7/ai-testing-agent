@@ -1,7 +1,22 @@
 """Orders API (demo). Several things here are wrong on purpose."""
+from typing import Optional
+
 from fastapi import Depends, FastAPI
+from pydantic import BaseModel
 
 app = FastAPI()
+
+
+class NewOrder(BaseModel):
+    total: float
+    coupon: str                    # required here, missing from the spec and the frontend
+    note: Optional[str] = None
+
+
+class OrderOut(BaseModel):
+    id: int
+    total: float
+    internal_margin: float         # returned to every caller; the spec does not mention it
 
 
 def get_db():
@@ -24,7 +39,7 @@ def list_orders(sort: str = "id", db=Depends(get_db), user=Depends(current_user)
     ).fetchall()
 
 
-@app.get("/api/orders/{order_id}")
+@app.get("/api/orders/{order_id}", response_model=OrderOut)
 def get_order(order_id: int, db=Depends(get_db), user=Depends(current_user)):
     # Signed in, but any customer can read any order.
     record_event(db, order_id, "viewed")
@@ -32,10 +47,10 @@ def get_order(order_id: int, db=Depends(get_db), user=Depends(current_user)):
 
 
 @app.post("/api/orders")
-def create_order(total: float, db=Depends(get_db), user=Depends(current_user)):
+def create_order(order: NewOrder, db=Depends(get_db), user=Depends(current_user)):
     # The orders table has no status column.
     db.execute(
-        "INSERT INTO orders (customer_id, total, status) VALUES (?, ?, 'new')", (user.id, total)
+        "INSERT INTO orders (customer_id, total, status) VALUES (?, ?, 'new')", (user.id, order.total)
     )
 
 

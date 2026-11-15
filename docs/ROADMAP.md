@@ -193,6 +193,16 @@ been run in a real repository.
 Run the audit on each pull request and report only what changed: new gaps, tests that no
 longer validate, requirements that lost coverage.
 
+## One report (built)
+
+`python cli.py full-report` puts the results of `audit`, `browse`, `trace` and `validate`
+into one document, Markdown or self-contained HTML. It lists each check as run or not run
+with the reason, so a partial audit cannot be mistaken for a complete one.
+
+Still to do: it has been produced for the sample application only. There is no PDF, no
+signature and no record of the exact code version audited; Attestor's evidence pack has all
+three, and the two should meet.
+
 ## What the audit report should contain
 
 - **Wrong now:** the code contradicts a requirement. Each item cites the requirement, the

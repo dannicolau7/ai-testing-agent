@@ -63,6 +63,7 @@ jobs:
             test_model_backend.py \
             test_permissions.py \
             test_audit_diff.py \
+            test_full_report.py \
             -v --tb=short
 
   browser:

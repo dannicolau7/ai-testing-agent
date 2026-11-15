@@ -235,6 +235,25 @@ it clicks buttons only with `--click`, skipping any whose label looks destructiv
 against a test environment, never production. `--header 'Authorization: Bearer ...'`
 signs it in.
 
+### One report from everything
+
+```bash
+python cli.py full-report path/to/app -r requirements.md -p permissions.yaml \
+    --tests tests/ --url http://localhost:3000 -o report.md --html report.html
+```
+
+`full-report` runs every check it has the inputs for and writes one document: the verdict,
+a table of which checks were run and which were not (with the reason), every finding marked
+with the check it came from, one row per requirement (linked code, what was checked,
+tests), the permissions table, and what was not examined. A check that was not run is
+listed as not run, never as passed. `--html` writes a self-contained page that reads well on
+a phone and prints cleanly. Try it on the sample:
+
+```bash
+D=examples/audit-demo
+python cli.py full-report $D -r $D/requirements.md -p $D/permissions.yaml --tests $D/tests --html report.html
+```
+
 ### Which model, and what it costs
 
 | Setting | Model | Cost |

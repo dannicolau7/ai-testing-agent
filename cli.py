@@ -971,6 +971,93 @@ def cmd_audit(args):
     sys.exit(0 if ok else 1)
 
 
+def cmd_full_report(args):
+    """One report from every check that can be run with what was given."""
+    import app_audit
+    import full_report
+
+    if not Path(args.path).is_dir():
+        print(f"❌ Not a directory: {args.path}")
+        sys.exit(2)
+    requirements = policy = links = trace = validation = browser = None
+    notes = []
+    if args.requirements:
+        import traceability
+
+        try:
+            requirements = traceability.extract_requirements(Path(args.requirements).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read requirements file: {exc}")
+            sys.exit(2)
+        if not requirements:
+            print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
+            sys.exit(2)
+    if args.links:
+        import requirement_links
+
+        if requirements is None:
+            print("❌ --links needs --requirements.")
+            sys.exit(2)
+        try:
+            loaded, notes = requirement_links.load(Path(args.links).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read links file: {exc}")
+            sys.exit(2)
+        links = requirement_links.as_overrides(loaded)
+        if len(loaded) - len(links):
+            notes.append(f"{len(loaded) - len(links)} proposed link(s) are not confirmed and were not used")
+    if args.permissions:
+        import permissions
+
+        try:
+            policy = permissions.load(Path(args.permissions).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read permissions file: {exc}")
+            sys.exit(2)
+    model = app_audit.build_model(args.path)
+    audit_report = app_audit.audit(model, requirements, links, notes, policy)
+    if requirements is not None and args.tests:
+        import traceability
+
+        trace = traceability.build_report(requirements, traceability.scan_tests(args.tests))
+    if args.tests and args.validate:
+        import validation as validation_module
+
+        print("Running the tests twice to see whether each can fail...", flush=True)
+        validation = validation_module.validate_tests(args.tests, timeout=args.timeout)
+    if args.url:
+        import browser_audit
+
+        headers = {}
+        for item in args.header or []:
+            name, sep, value = item.partition(":")
+            if not sep or not name.strip():
+                print(f"❌ --header must look like 'Name: value', got: {item[:40]}")
+                sys.exit(2)
+            headers[name.strip()] = value.strip()
+        try:
+            print(f"Opening {args.url} in a browser...", flush=True)
+            browser = browser_audit.report(
+                browser_audit.browse(args.url, max_pages=args.max_pages, click=args.click, headers=headers), model)
+        except browser_audit.BrowserUnavailable as exc:
+            print(f"❌ {exc}")
+            sys.exit(2)
+    report = full_report.build(args.path, audit_report, browser, trace, validation,
+                               requirements_given=requirements is not None, tests_given=bool(args.tests),
+                               url=args.url or "")
+    markdown = full_report.render_markdown(report)
+    if args.html:
+        Path(args.html).write_text(full_report.to_html(markdown, f"Application audit report: {report.app_name}"),
+                                   encoding='utf-8')
+        print(f"HTML report → {args.html}")
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    elif not args.html:
+        print(markdown)
+    sys.exit(0 if report.ok else 1)
+
+
 def cmd_browse(args):
     """Open the running application in a browser and report what its pages do."""
     import app_audit
@@ -1537,6 +1624,26 @@ Examples:
     audit_parser.add_argument('--requirements', '-r',
                               help='Requirements file; also check the code against requirements that name a route')
 
+    # One report from every check
+    report_parser = subparsers.add_parser(
+        'full-report',
+        help='One report from every check: source, requirements, permissions, tests and browser'
+    )
+    report_parser.add_argument('path', help='Root directory of the application source')
+    report_parser.add_argument('--requirements', '-r', help='Requirements file')
+    report_parser.add_argument('--links', help='Confirmed links between requirements and routes')
+    report_parser.add_argument('--permissions', '-p', help='Permissions table')
+    report_parser.add_argument('--tests', nargs='+', help='Test files or folders, to line up with the requirements')
+    report_parser.add_argument('--validate', action='store_true',
+                               help='Also run the tests twice to show whether each can fail (needs the system they call)')
+    report_parser.add_argument('--timeout', type=int, default=300, help='Seconds allowed for each test run (default 300)')
+    report_parser.add_argument('--url', help='Where a TEST environment runs, to check it in a browser')
+    report_parser.add_argument('--max-pages', type=int, default=25, help='Pages the browser opens at most (default 25)')
+    report_parser.add_argument('--click', action='store_true', help='Let the browser click buttons that do not look destructive')
+    report_parser.add_argument('--header', action='append', metavar="'Name: value'", help='A header for the browser, e.g. to sign in')
+    report_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    report_parser.add_argument('--html', help='Also write a self-contained HTML report to this file')
+
     # Browser check (roadmap stage 7)
     browse_parser = subparsers.add_parser(
         'browse',
@@ -1635,6 +1742,8 @@ Examples:
         cmd_link(args)
     elif args.command == 'browse':
         cmd_browse(args)
+    elif args.command == 'full-report':
+        cmd_full_report(args)
     elif args.command == 'permissions':
         cmd_permissions(args)
     elif args.command == 'trace':

@@ -90,9 +90,9 @@ jobs:
         env:
           AI_AGENT_TELEMETRY: "false"
         run: |
-          python -m pytest test_browser_audit.py -v --tb=short -rs
+          python -m pytest test_browser_audit.py test_journeys.py -v --tb=short -rs
           # A skip here would mean the browser did not start: fail instead of passing quietly.
-          python -m pytest test_browser_audit.py -q -rs | tee result.txt
+          python -m pytest test_browser_audit.py test_journeys.py -q -rs | tee result.txt
           ! grep -q "skipped" result.txt
 
   real-code:

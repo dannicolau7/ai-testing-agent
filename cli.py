@@ -1099,6 +1099,41 @@ def cmd_browse(args):
     sys.exit(0 if result.ok else 1)
 
 
+def cmd_journey(args):
+    """Carry out requirements in the page and check the backend agrees."""
+    import browser_audit
+    import journeys
+
+    try:
+        loaded, problems = journeys.load(Path(args.file).read_text(encoding='utf-8'))
+    except OSError as exc:
+        print(f"❌ Cannot read journeys file: {exc}")
+        sys.exit(2)
+    if not loaded:
+        for problem in problems or ["the file has no journeys"]:
+            print(f"❌ {problem}")
+        sys.exit(2)
+    headers = {}
+    for item in args.header or []:
+        name, sep, value = item.partition(":")
+        if not sep or not name.strip():
+            print(f"❌ --header must look like 'Name: value', got: {item[:40]}")
+            sys.exit(2)
+        headers[name.strip()] = value.strip()
+    try:
+        results = journeys.run(loaded, args.url, headers)
+    except browser_audit.BrowserUnavailable as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
+    markdown = journeys.render_markdown(results, problems, args.url)
+    if args.output:
+        Path(args.output).write_text(markdown, encoding='utf-8')
+        print(f"Report → {args.output}")
+    else:
+        print(markdown)
+    sys.exit(1 if problems or any(r.outcome != "passed" for r in results) else 0)
+
+
 def cmd_link(args):
     """Ask a model to propose which code each requirement is about, for a person to confirm."""
     import app_audit
@@ -1668,6 +1703,17 @@ Examples:
                                help='A header sent with every request, e.g. to sign in; may be repeated')
     browse_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
 
+    # Journeys: a requirement carried out in the page, then checked in the backend
+    journey_parser = subparsers.add_parser(
+        'journey',
+        help='Carry out requirements in the page, step by step, and check the backend agrees'
+    )
+    journey_parser.add_argument('file', help='Journeys file (YAML)')
+    journey_parser.add_argument('--url', required=True, help='Where the application runs (a TEST environment)')
+    journey_parser.add_argument('--header', action='append', metavar="'Name: value'",
+                                help='A header sent with every request, e.g. to sign in; may be repeated')
+    journey_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+
     # Model-proposed links between requirements and code
     link_parser = subparsers.add_parser(
         'link',
@@ -1750,6 +1796,8 @@ Examples:
         cmd_audit(args)
     elif args.command == 'link':
         cmd_link(args)
+    elif args.command == 'journey':
+        cmd_journey(args)
     elif args.command == 'browse':
         cmd_browse(args)
     elif args.command == 'full-report':

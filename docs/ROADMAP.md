@@ -65,8 +65,11 @@ Built: `python cli.py trace requirements.md tests/` reads requirement ids (REQ-1
 AC-2.1) and the ids each test points at, and lists requirements with no test, tests with
 no requirement, and tests that point at a requirement that does not exist.
 
-Still to do: generated tests do not yet carry requirement ids, and nothing links a
-requirement to the code that implements it.
+Generated tests now carry the ids too: a test case's `requirement_ids` become a
+`# Requirement:` comment above each generated test. Ids are never guessed from other text.
+
+Still to do: nothing links a requirement to the code that implements it, and the id
+linking has not been run against a live model.
 
 ### Stage 3: proof that a test checks something (first version done)
 

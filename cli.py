@@ -949,13 +949,26 @@ def cmd_audit(args):
             print(f"❌ Cannot read permissions file: {exc}")
             sys.exit(2)
     report = app_audit.audit(app_audit.build_model(args.path), requirements, links, notes, policy)
-    markdown = app_audit.render_markdown(report)
+    ok, markdown = report.ok, app_audit.render_markdown(report)
+    if args.baseline or args.save:
+        import audit_diff
+
+        if args.baseline:
+            # Compare before saving, so --baseline and --save may name the same file.
+            try:
+                change = audit_diff.compare(report, audit_diff.load(Path(args.baseline).read_text(encoding='utf-8')))
+            except (OSError, audit_diff.BaselineError) as exc:
+                print(f"❌ Cannot use the baseline: {exc}")
+                sys.exit(2)
+            ok, markdown = change.ok, audit_diff.render_markdown(change)
+        if args.save:
+            Path(args.save).write_text(audit_diff.to_json(report), encoding='utf-8')
     if args.output:
         Path(args.output).write_text(markdown, encoding='utf-8')
         print(f"Report → {args.output}")
     else:
         print(markdown)
-    sys.exit(0 if report.ok else 1)
+    sys.exit(0 if ok else 1)
 
 
 def cmd_link(args):
@@ -1480,6 +1493,10 @@ Examples:
     )
     audit_parser.add_argument('path', help='Root directory of the application source')
     audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    audit_parser.add_argument('--save', metavar='FILE',
+                              help='Save the findings as JSON, to compare a later audit with')
+    audit_parser.add_argument('--baseline', metavar='FILE',
+                              help='Report only what changed since a saved audit; exit 1 only for a new fault')
     audit_parser.add_argument('--permissions', '-p',
                               help='Permissions table (roles against routes); also check the code against it')
     audit_parser.add_argument('--links',

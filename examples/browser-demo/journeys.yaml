@@ -1,0 +1,32 @@
+# Journeys for the demo site. Run:
+#   python examples/browser-demo/server.py 8765 &
+#   python cli.py journey examples/browser-demo/journeys.yaml --url http://127.0.0.1:8765
+# The first works. The second and third are planted faults.
+journeys:
+  - id: REQ-1
+    name: A user can add a note
+    steps:
+      - open: /notes
+      - fill: {field: Title, value: Buy milk}
+      - click: Save
+      - see: Buy milk
+    page_must_call: POST /api/notes
+    backend_must_show: {get: /api/notes, contains: Buy milk}
+
+  - id: REQ-2
+    name: A user can rename a note
+    steps:
+      - open: /notes
+      - fill: {field: New title, value: Renamed note}
+      - click: Rename first note
+      - see: Renamed
+    page_must_call: POST /api/notes/rename
+    backend_must_show: {get: /api/notes, contains: Renamed note}
+
+  - id: REQ-3
+    name: A user can archive all notes
+    steps:
+      - open: /notes
+      - click: Archive all
+      - see: Archived
+    page_must_call: POST /api/notes/archive

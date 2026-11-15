@@ -277,6 +277,34 @@ D=examples/audit-demo
 python cli.py full-report $D -r $D/requirements.md -p $D/permissions.yaml --tests $D/tests --html report.html
 ```
 
+### A requirement, carried out in the page
+
+```bash
+python examples/browser-demo/server.py 8765 &
+python cli.py journey examples/browser-demo/journeys.yaml --url http://127.0.0.1:8765
+```
+
+A journey does what a user would do for one requirement, then checks three things: the
+steps work in the page, the page sent the request it should and the server accepted it,
+and afterwards the backend really holds the result. The last check catches a page that says
+"Saved" while the server stored nothing.
+
+```yaml
+journeys:
+  - id: REQ-4
+    name: A user can add a note
+    steps:
+      - open: /notes
+      - fill: {field: Title, value: Buy milk}
+      - click: Save
+      - see: Buy milk
+    page_must_call: POST /api/notes
+    backend_must_show: {get: /api/notes, contains: Buy milk}
+```
+
+A person writes the journeys. They do exactly what their steps say, including saving and
+deleting, so run them against a test environment only.
+
 ### Which model, and what it costs
 
 | Setting | Model | Cost |

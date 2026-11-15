@@ -170,8 +170,15 @@ answered 404, 405 or 5xx, and broken links. With `--source` it lists which backe
 it saw being called. It never fills in forms and clicks buttons only on request, skipping
 destructive-looking labels. `examples/browser-demo` is a small site with planted problems.
 
-Still to do: it has been run on the demo site only. It does not sign in through a login
-form, fill in forms, or carry out a user-facing requirement step by step. It does not yet
+Also built (`journeys.py`): `python cli.py journey FILE --url URL` carries out a
+requirement in the page from a short file of steps (open, fill, click, see), then checks
+that the page sent the right request and that the backend holds the result afterwards. On
+the demo site it catches a page that shows a rename the server never stored, and a page
+that reports success after the server answered "not found".
+
+Still to do: both have been run on the demo site only. `browse` does not sign in through a
+login form. Journeys are written by a person, not generated from requirements; they are
+not undone afterwards; and their backend check is "the response contains this text". It does not yet
 check that a control hidden in the interface is also refused by the server; the generated
 permission tests cover the server side of that.
 
@@ -203,8 +210,8 @@ real faults fail and one false alarm passes.
 
 Still to do: only three kinds of finding can be tested this way. Missing columns, request
 shapes and role rules need a request body or a second role, which the generator does not
-build yet. The tests have not been run against a real application. There are no generated
-browser tests: nothing yet carries out a requirement in the page and then checks the backend.
+build yet. The tests have not been run against a real application. Browser journeys exist (see
+Stage 7) but are written by hand, not generated from findings.
 
 ## Trials on real code
 

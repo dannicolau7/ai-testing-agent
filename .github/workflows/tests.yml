@@ -93,3 +93,22 @@ jobs:
           # A skip here would mean the browser did not start: fail instead of passing quietly.
           python -m pytest test_browser_audit.py -q -rs | tee result.txt
           ! grep -q "skipped" result.txt
+
+  real-code:
+    # The audit run on three open-source applications at pinned commits, as they are and with
+    # one fault planted at a time. Fails when a result differs from the written record.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install what the audit needs
+        run: pip install pyyaml
+
+      - name: Run the real-code trial
+        env:
+          AI_AGENT_TELEMETRY: "false"
+        run: python trials/planted_faults.py

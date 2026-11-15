@@ -163,8 +163,15 @@ the dropped foreign key on `owner_id`.
 
 A regression was also caught by re-running Trial 3 after the change: handling `DROP TABLE`
 removed the Flask application's tables, because its schema drops each table before creating
-it. Three planted faults went from found to missed until it was fixed. The planted-fault
-run is worth keeping as a check on every change to the readers; it is not yet automated.
+it. Three planted faults went from found to missed until it was fixed.
+
+## The trial is now a check
+
+`python trials/planted_faults.py` fetches the three applications at pinned commits, audits
+them as they are, plants each fault in a copy, and compares every result with the record
+written in the script. It runs in CI on every change. It fails when a new finding appears on
+an unmodified application, when a planted fault that was found is now missed, and also when
+one that was missed is now found, so that this document is updated when the audit improves.
 
 ## What these trials do not show
 

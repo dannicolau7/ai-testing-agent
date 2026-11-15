@@ -164,6 +164,20 @@ database tables (SQL `CREATE TABLE` in `.sql` files or Python strings, SQLAlchem
 - **Unclear:** things the audit could not decide, for a person to look at.
 - **Not examined:** stated every time, including any layer it did not find.
 
+Add your requirements to check the code against them:
+
+```bash
+python cli.py audit path/to/app --requirements requirements.md
+```
+
+No model reads the requirements, so a requirement is linked to code only where the link is
+written down: the requirement names a route (`GET /api/orders/{id}`), or a handler has
+`# Requirement: REQ-3` above it. For a linked requirement the audit checks four things it
+can read from the wording: sign-in, "their own" (ownership), administrators only, and
+"must be unique" against the database. A table in the report shows, per requirement, what
+it was linked to, what was checked and the result. Unlinked requirements are listed as
+unclear, never as met.
+
 It exits 1 when there is a "wrong now" finding. It compares the layers with each other; it
 reads data access but not the rest of the handler logic, and does not know your requirements, so a clean result means the layers
 agree, not that the product is right.

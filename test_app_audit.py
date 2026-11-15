@@ -24,7 +24,7 @@ def test_the_demo_application_is_read_layer_by_layer():
     ]
     assert len(model.spec_operations) == 5 and model.spec_files == ["openapi.yaml"]
     assert {t.name: len(t.columns) for t in model.tables} == {
-        "customers": 2, "addresses": 3, "orders": 4, "order_events": 2,
+        "customers": 3, "addresses": 3, "orders": 4, "order_events": 2,
     }
     by_route = {r.key: r for r in model.routes}
     # A database dependency is not an access check; a current-user dependency is evidence of one.

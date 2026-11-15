@@ -36,7 +36,7 @@ _WHERE = re.compile(r"\bWHERE\b(.*?)(?:\bGROUP\s+BY\b|\bORDER\s+BY\b|\bLIMIT\b|\
 _COMPARED = re.compile(r"(?:\b\w+\.)?\b([A-Za-z_]\w*)\s*(?:=|!=|<>|<=|>=|<|>|\bIN\b|\bLIKE\b|\bIS\b|\bBETWEEN\b)", re.IGNORECASE)
 _SQL_WORDS = {"and", "or", "not", "null", "true", "false", "where", "select", "from", "set", "in", "is", "like"}
 
-_ORM_READ = {"query", "select", "get", "scalars", "get_or_404"}
+_ORM_READ = {"query", "select", "select_from", "get", "scalars", "get_or_404"}
 _ORM_WRITE = {"add", "merge", "insert", "update", "delete", "add_all"}
 
 
@@ -165,7 +165,36 @@ def index_functions(trees: Iterable[Tuple[str, ast.AST]]) -> FunctionIndex:
     return index
 
 
-def _orm_accesses(call: ast.Call, file: str) -> List[DataAccess]:
+def _model_variables(func: ast.AST) -> Dict[str, str]:
+    """Variables in a function that hold a model instance: item = Item(...), item = session.get(Item, id)."""
+    found: Dict[str, str] = {}
+    args = getattr(func, "args", None)
+    for arg in (args.posonlyargs + args.args + args.kwonlyargs) if args else []:
+        name = _last(arg.annotation) if arg.annotation is not None else ""
+        if name[:1].isupper():
+            found[arg.arg] = name                                # item: Item, current_user: CurrentUser
+    for node in _walk_own(func):
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Call):
+            continue
+        cls = ""
+        if isinstance(value.func, ast.Name) and value.func.id[:1].isupper():
+            cls = value.func.id                                  # Item(...)
+        elif isinstance(value.func, ast.Attribute):
+            owner = _last(value.func.value)
+            if owner[:1].isupper():
+                cls = owner                                      # Item.model_validate(...)
+            elif value.func.attr in ("get", "get_or_404", "merge") and value.args:
+                first = _last(value.args[0])
+                cls = first if first[:1].isupper() else ""       # session.get(Item, id)
+        if cls:
+            found[node.targets[0].id] = cls
+    return found
+
+
+def _orm_accesses(call: ast.Call, file: str, variables: Optional[Dict[str, str]] = None) -> List[DataAccess]:
     method = _last(call.func)
     out = []
     if method in _ORM_READ or method in _ORM_WRITE:
@@ -173,6 +202,8 @@ def _orm_accesses(call: ast.Call, file: str) -> List[DataAccess]:
         for arg in call.args:
             target = arg.func if (isinstance(arg, ast.Call) and method in ("add", "merge")) else arg
             name = _last(target) if isinstance(target, (ast.Name, ast.Attribute)) else ""
+            if method in ("add", "delete", "merge", "refresh") and isinstance(target, ast.Name) and variables:
+                name = variables.get(name, name)                 # session.add(item) where item is an Item
             if name[:1].isupper():   # a model class by convention
                 out.append(DataAccess(kind, name, file, call.lineno, sql=False))
     return out
@@ -198,6 +229,7 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
         seen.add(id(node))
         data.functions_followed += 1
         consumed: Set[int] = set()   # string nodes that are part of a larger SQL expression
+        variables = _model_variables(node)
         args = getattr(node, "args", None)
         params = {a.arg for a in (args.posonlyargs + args.args + args.kwonlyargs)} if args else set()
 
@@ -231,9 +263,14 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
                     record(sql, child.lineno)
                     continue
             if isinstance(child, ast.Call):
-                data.accesses += _orm_accesses(child, where)
+                data.accesses += _orm_accesses(child, where, variables)
                 name = _last(child.func)
                 targets = index.get(name, [])
+                if len(targets) > 1 and isinstance(child.func, ast.Attribute):
+                    # crud.create_user(...) means the create_user in crud.py, whatever else shares the name.
+                    module = _last(child.func.value)
+                    in_module = [t for t in targets if t[0].replace("\\", "/").rsplit("/", 1)[-1] == module + ".py"]
+                    targets = in_module if len(in_module) == 1 else targets
                 # Follow a call only when the project defines exactly one function of that name.
                 if len(targets) == 1 and targets[0][1] is not node:
                     visit(targets[0][1], targets[0][0], depth + 1)

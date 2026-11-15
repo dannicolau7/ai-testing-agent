@@ -106,7 +106,8 @@ def load(text: str) -> Policy:
 class Shown:
     signed_in: bool                  # some access check is visible
     role_check: bool                 # something that looks like a role or permission check
-    roles: List[str]                 # which of the policy's roles the check names
+    roles: List[str]                 # roles named on the route or in its handler
+    on_route: List[str] = field(default_factory=list)   # roles named by the route's own dependencies
 
 
 def shown(route: app_audit.Route, roles: List[str]) -> Shown:
@@ -114,22 +115,26 @@ def shown(route: app_audit.Route, roles: List[str]) -> Shown:
     # Identifiers in the route's decorators and dependencies: Depends(deps.require_admin) → require_admin
     evidence = re.findall(r"[A-Za-z_]\w*", " ".join(route.auth_evidence))
     names = sorted(route.data.names) if route.data else []
-    named = []
-    for role in roles:
-        if role == ANONYMOUS:
-            continue
+    named, on_route = [], []
+    signed_in_roles = [r for r in roles if r != ANONYMOUS]
+    for role in signed_in_roles:
         word = re.escape(role.lower())
-        # Only a name that is about the role itself counts: is_admin or require_admin.
-        # customer_id is a column, and current_user says nothing about a role called "user".
+        # Only a name that is about the role itself counts: is_admin, require_admin or
+        # get_current_active_superuser. customer_id is a column.
         about_role = re.compile(
-            r"^(is|require|requires|required|ensure|check|assert|only|must_be|get)?_?" + word
+            r"^((is|require|requires|required|ensure|check|assert|only|must_be|get|current)_(\w+_)?)?" + word
             + r"s?(_required|_only|_user|_role)?$")
+        gate = any(about_role.match(n.lower()) for n in evidence)
+        # get_current_user says "signed in", not "has the role called user": the plainest role is no gate.
+        if gate and not (role == signed_in_roles[0] and len(signed_in_roles) > 1 and "current" in " ".join(evidence).lower()):
+            on_route.append(role)
         # A bare name in the handler (a variable called `user`) says nothing either.
-        if any(about_role.match(n.lower()) for n in evidence) or any(
-                about_role.match(n.lower()) and n.lower() not in (role.lower(), role.lower() + "s") for n in names):
+        plainest = role == signed_in_roles[0] and len(signed_in_roles) > 1
+        if role in on_route or (not plainest and any(
+                about_role.match(n.lower()) and n.lower() not in (role.lower(), role.lower() + "s") for n in names)):
             named.append(role)
     text = " ".join(route.auth_evidence) + " " + " ".join(names)
-    return Shown(bool(route.auth_evidence), bool(_ROLE_WORDS.search(text)) or bool(named), named)
+    return Shown(bool(route.auth_evidence), bool(_ROLE_WORDS.search(text)) or bool(named), named, on_route)
 
 
 def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding]:
@@ -166,9 +171,11 @@ def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding
                         f"({', '.join(route.auth_evidence)}) and nothing on it or in its handler mentions a "
                         "role or permission, so any signed-in user may get through.", where)
                 else:
-                    wrongly = [r for r in seen.roles if r in refused]
+                    # Only a role the route itself requires. A role the handler mentions may be
+                    # mentioned in order to refuse it.
+                    wrongly = [r for r in seen.on_route if r in refused]
                     if wrongly:
-                        add("likely", f"{name} must refuse {_join(wrongly)}, but the code's check names that role",
+                        add("likely", f"{name} must refuse {_join(wrongly)}, but the route requires that role",
                             f"Allowed: {', '.join(rule.allow) or 'nobody'}. Seen: {', '.join(route.auth_evidence)}.", where)
             if rule.own:
                 gap = app_audit.ownership_gap(route, model.tables)
@@ -206,9 +213,16 @@ def table_markdown(model: app_audit.AppModel, policy: Policy) -> List[str]:
             code = "no such route"
         else:
             seen = shown(route, policy.roles)
-            code = ("no access check" if not seen.signed_in else
-                    "a role check" + (f" ({', '.join(seen.roles)})" if seen.roles else "") if seen.role_check else
-                    "sign-in only")
+            if not seen.signed_in:
+                code = "no access check"
+            elif seen.on_route:
+                code = f"requires {', '.join(seen.on_route)}"
+            elif seen.roles:
+                code = f"sign-in; the handler mentions {', '.join(seen.roles)}"
+            elif seen.role_check:
+                code = "a role check"
+            else:
+                code = "sign-in only"
         cells = ["allow" if r in rule.allow else "refuse" for r in policy.roles]
         lines.append(f"| {rule.name} | " + " | ".join(cells) + f" | {'yes' if rule.own else 'no'} | {code} |")
     return lines + [""]
@@ -237,8 +251,10 @@ def draft(model: app_audit.AppModel, roles: Optional[List[str]] = None) -> str:
         seen = shown(route, roles)
         if not seen.signed_in:
             allow, note = roles, "no access check seen"
+        elif seen.on_route:
+            allow, note = seen.on_route, "role check seen on the route"
         elif seen.roles:
-            allow, note = seen.roles, "role check seen"
+            allow, note = signed_in, f"sign-in seen; the handler treats {', '.join(seen.roles)} differently: check this line"
         elif seen.role_check:
             allow, note = signed_in, "a role check is seen, but not which role: correct this line"
         else:

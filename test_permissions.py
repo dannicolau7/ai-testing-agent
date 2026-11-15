@@ -95,7 +95,7 @@ def test_the_code_is_compared_with_the_table(tmp_path):
         f.title for f in report.of("unclear")]
     markdown = app_audit.render_markdown(report)
     assert "| GET /notes/{id} | refuse | allow | allow | yes | sign-in only |" in markdown
-    assert "| POST /admin/export | refuse | refuse | allow | no | a role check (admin) |" in markdown
+    assert "| POST /admin/export | refuse | refuse | allow | no | requires admin |" in markdown
     assert "| DELETE /notes/{id} | refuse | allow | refuse | yes | no access check |" in markdown
 
 

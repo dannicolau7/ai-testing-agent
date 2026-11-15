@@ -7,6 +7,7 @@ anthropic>=0.18.0          # Claude AI API
 # Request runner (Postman replacement)
 requests>=2.31.0           # HTTP client used by RequestRunner
 rich>=13.7.0               # Beautiful terminal output (panels, syntax highlighting, tables)
+pyyaml>=6.0                # Specs, environments and test data are YAML (env_manager, data_manager)
 
 # Document parsing
 PyPDF2>=3.0.0             # PDF parsing
@@ -17,6 +18,9 @@ pytest-html>=4.1.0        # HTML test reports
 pytest-cov>=4.1.0         # Code coverage
 pytest-xdist>=3.5.0       # Parallel test execution
 allure-pytest>=2.13.0     # Allure reporting framework
+
+# Test data in the project's own tests
+faker>=20.0.0             # test_quality_enhancer.py
 
 # Development dependencies
 black>=23.0.0             # Code formatting

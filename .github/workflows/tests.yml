@@ -53,4 +53,5 @@ jobs:
             test_failure_analyzer.py \
             test_compliance.py \
             test_chain_detector.py \
+            test_execute_tests.py \
             -v --tb=short

@@ -14,6 +14,8 @@ This AI agent automates the entire testing workflow:
 import os
 import json
 import re
+import subprocess
+import sys
 import time
 import random
 from typing import List, Dict, Optional
@@ -485,44 +487,88 @@ Return ONLY the raw Python code. Do NOT include markdown fences, explanations, o
         print(f"✅ Generated {len(generated_files)} pytest files")
         return generated_files
     
-    def execute_tests(self) -> Dict:
+    def execute_tests(self, timeout: int = 120) -> Dict:
         """
-        Execute generated pytest tests and capture results.
-        
+        Run the generated pytest files and record what actually happened.
+
+        Each file runs in its own pytest process, so one broken file cannot hide the
+        results of the others. Counts come from pytest's own summary line. Nothing is
+        ever reported as passed unless pytest ran it and it passed.
+
         Returns:
             Test execution results
         """
         print("\n🧪 Executing tests...")
-        
-        # In real implementation, this would run pytest programmatically
-        # For now, we'll simulate execution
-        
+
         results = {
-            'total_tests': len(self.state['test_cases']),
+            'total_tests': 0,
             'passed': 0,
             'failed': 0,
             'skipped': 0,
+            'errors': 0,
             'execution_time': 0,
             'details': []
         }
-        
+
         for test_file in self.state['generated_code']:
-            # Simulate test execution
-            test_result = {
+            started = time.time()
+            try:
+                proc = subprocess.run(
+                    [sys.executable, "-m", "pytest", "-q", "--no-header", "-rA", "--tb=short",
+                     "-p", "no:cacheprovider", test_file],
+                    capture_output=True, text=True, timeout=timeout,
+                )
+                output, exit_code = proc.stdout + proc.stderr, proc.returncode
+            except subprocess.TimeoutExpired:
+                output, exit_code = f"pytest timed out after {timeout}s", 2
+            duration = time.time() - started
+
+            counts = self._parse_pytest_counts(output)
+            if exit_code == 5 or (exit_code != 0 and not sum(counts.values())):
+                # No tests collected, a timeout, or a file pytest could not even import.
+                counts['errors'] = max(counts['errors'], 1)
+            if counts['failed'] or counts['errors']:
+                status = 'failed' if counts['failed'] else 'error'
+            elif counts['passed']:
+                status = 'passed'
+            else:
+                status = 'skipped'  # nothing ran: placeholders, or every test skipped
+
+            results['details'].append({
                 'file': test_file,
-                'status': 'passed',  # In real version: run pytest
-                'duration': 0.5,
-                'output': ''
-            }
-            results['details'].append(test_result)
-            results['passed'] += 1
-        
+                'status': status,
+                'duration': round(duration, 2),
+                'exit_code': exit_code,
+                **counts,
+                'output': output[-4000:],
+            })
+            for key in ('passed', 'failed', 'skipped', 'errors'):
+                results[key] += counts[key]
+            results['execution_time'] += duration
+
+        results['total_tests'] = sum(results[k] for k in ('passed', 'failed', 'skipped', 'errors'))
+        results['execution_time'] = round(results['execution_time'], 2)
         self.state['test_results'] = results
         self.state['current_phase'] = 'tests_executed'
-        
-        print(f"✅ Tests completed: {results['passed']} passed, {results['failed']} failed")
+
+        print(
+            f"✅ Tests ran: {results['passed']} passed, {results['failed']} failed, "
+            f"{results['errors']} errors, {results['skipped']} skipped"
+        )
+        if results['skipped'] and not results['passed'] and not results['failed']:
+            print("⚠️  Nothing was actually checked: every test was skipped (placeholder output?).")
         return results
-    
+
+    @staticmethod
+    def _parse_pytest_counts(output: str) -> Dict[str, int]:
+        """Read passed/failed/skipped/error counts from pytest's summary line."""
+        counts = {'passed': 0, 'failed': 0, 'skipped': 0, 'errors': 0}
+        lines = [ln for ln in output.strip().splitlines() if re.search(r"\d+ (passed|failed|skipped|error)", ln)]
+        if lines:
+            for number, word in re.findall(r"(\d+) (passed|failed|skipped|errors?)", lines[-1]):
+                counts['errors' if word.startswith('error') else word] += int(number)
+        return counts
+
     def analyze_results(self) -> Dict:
         """
         AI analyzes test results and provides insights.
@@ -1237,8 +1283,8 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
                 # Make the API call
                 message = client.messages.create(
                     model="claude-haiku-4-5-20251001",  # Claude Haiku 4.5
-                    max_tokens=4096,
-                    temperature=0.7,
+                    # No sampling parameters: current models reject `temperature` with a 400.
+                    max_tokens=16000,
                     messages=[
                         {"role": "user", "content": prompt}
                     ]
@@ -1256,7 +1302,11 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
                 print(f"  💰 Cost: ${call_cost:.4f} (Total: ${self.usage_stats['estimated_cost']:.4f})")
                 
                 # Extract and return the text content
-                return message.content[0].text
+                # Current models can put a thinking block first, so read text by block type.
+                return "".join(
+                    block.text for block in message.content
+                    if getattr(block, "type", "text") == "text" and isinstance(getattr(block, "text", None), str)
+                )
                 
             except anthropic.RateLimitError as e:
                 # Extract retry-after time from error if available
@@ -1680,6 +1730,8 @@ Real AI generates production-ready code with proper fixtures and assertions
 """
 import pytest
 
+pytestmark = pytest.mark.skip(reason="Placeholder generated without an API key: it checks nothing.")
+
 class Test{test_id}:
     """Mock test class - simplified version"""
     
@@ -1701,6 +1753,8 @@ Upgrade to Pro for intelligent, context-aware test generation
 """
 import pytest
 from unittest.mock import Mock, patch
+
+pytestmark = pytest.mark.skip(reason="Placeholder generated without an API key: it checks nothing.")
 
 @pytest.fixture
 def mock_setup():

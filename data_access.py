@@ -249,6 +249,10 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
                 data.names.add(child.attr)
             elif isinstance(child, ast.keyword) and child.arg:
                 data.names.add(child.arg)
+            elif isinstance(child, ast.Subscript):
+                key = child.slice
+                if isinstance(key, ast.Constant) and isinstance(key.value, str):
+                    data.names.add(key.value)        # post["author_id"]
             if isinstance(child, ast.Call) and _last(child.func) in _RUNS_SQL and child.args:
                 direct = _sql_text(child.args[0], any_case=True)
                 if direct is not None and id(child.args[0]) not in consumed:

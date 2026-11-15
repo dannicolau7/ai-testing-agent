@@ -104,6 +104,7 @@ class Table:
     line: int
     columns: List[Column] = field(default_factory=list)
     model_class: str = ""  # the SQLAlchemy class, when the table came from one
+    keyed: bool = False    # rows are told apart by a unique index over several columns
 
 
 @dataclass
@@ -440,11 +441,20 @@ def _url_path(url: str) -> str:
 def js_routes(source: str, filename: str) -> List[Route]:
     routes = []
     for m in _EXPRESS.finditer(source):
-        obj, method, _, path, rest = m.groups()
+        obj, method, _, path, _rest = m.groups()
         if obj.lower() not in _EXPRESS_OBJECTS and not obj.lower().endswith("router"):
             continue  # axios.get("/x", ...) and similar are calls, not routes
-        middleware = [w for w in re.findall(r"[A-Za-z_$][\w$]*", rest.split("=>")[0])
-                      if AUTH_WORDS.search(w) and w not in ("req", "res", "next", "async", "function")]
+        # The whole call, which a formatter may have spread over several lines; the middleware
+        # is whatever stands between the path and the handler function.
+        call = shapes._balanced(source, source.index("(", m.start())) or m.group(0)
+        before_handler = re.split(r"=>|\bfunction\b|\basync\b", call.split(",", 1)[1] if "," in call else "")[0]
+        middleware = []
+        for name in re.findall(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*", before_handler):
+            if name in ("req", "res", "next"):
+                continue
+            # auth.optional lets a caller through without signing in, so it is not an access check.
+            if AUTH_WORDS.search(name) and not re.search(r"optional|maybe|public|anonymous", name, re.IGNORECASE):
+                middleware.append(name)
         routes.append(Route(method.upper(), path, filename, _line(source, m.start()), "", middleware[:3]))
     return routes
 
@@ -572,10 +582,50 @@ def sql_tables(source: str, filename: str) -> List[Table]:
                 elif "FOREIGN KEY" in upper:
                     ref = re.search(r"REFERENCES\s+[`\"\[]?([\w.]+)", constraint, re.IGNORECASE)
                     by_name[col].foreign_key = ref.group(1) if ref else "?"
+                elif "UNIQUE" in upper and len(cols) > 1:
+                    table.keyed = True
                 elif "UNIQUE" in upper and len(cols) == 1:
                     by_name[col].unique = True
         tables.append(table)
     return tables
+
+
+_UNIQUE_INDEX = re.compile(
+    r"CREATE\s+UNIQUE\s+INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?[`\"\[]?[^\s`\"\]]+[`\"\]]?\s+ON\s+(?:ONLY\s+)?"
+    r"[`\"\[]?([\w.]+)[`\"\]]?\s*(?:USING\s+\w+\s*)?\(([^)]*)\)", re.IGNORECASE)
+_ALTER = re.compile(
+    r"ALTER\s+TABLE\s+(?:ONLY\s+)?(?:IF\s+EXISTS\s+)?[`\"\[]?([\w.]+)[`\"\]]?\s+ADD\s+(?:CONSTRAINT\s+[`\"\[]?[^\s`\"\]]+[`\"\]]?\s+)?"
+    r"(PRIMARY\s+KEY|FOREIGN\s+KEY|UNIQUE)\s*\(([^)]*)\)(?:\s*REFERENCES\s+[`\"\[]?([\w.]+))?", re.IGNORECASE)
+
+
+def apply_sql_alterations(tables: List[Table], source: str) -> None:
+    """Keys added after the table was created: CREATE UNIQUE INDEX and ALTER TABLE ... ADD."""
+    by_name = {t.name.lower(): t for t in tables}
+
+    def columns(table: Table, text: str) -> List[Column]:
+        wanted = [c.strip(' `"[]').lower() for c in text.split(",")]
+        return [c for c in table.columns if c.name.lower() in wanted]
+
+    for m in _UNIQUE_INDEX.finditer(source):
+        table = by_name.get(m.group(1).split(".")[-1].lower())
+        found = columns(table, m.group(2)) if table else []
+        if len(found) == 1:
+            found[0].unique = True
+        elif len(found) > 1:
+            table.keyed = True
+    for m in _ALTER.finditer(source):
+        table = by_name.get(m.group(1).split(".")[-1].lower())
+        found = columns(table, m.group(3)) if table else []
+        kind = " ".join(m.group(2).upper().split())
+        for column in found:
+            if kind == "PRIMARY KEY":
+                column.primary_key, column.nullable = True, False
+            elif kind == "FOREIGN KEY":
+                column.foreign_key = m.group(4) or "?"
+            elif kind == "UNIQUE" and len(found) == 1:
+                column.unique = True
+        if kind == "UNIQUE" and len(found) > 1:
+            table.keyed = True
 
 
 def sqlalchemy_tables(source: str, filename: str) -> List[Table]:
@@ -736,9 +786,13 @@ def build_model(root_path: str) -> AppModel:
         model.routes += js_routes(source, rel)
         model.calls += js_calls(source, rel)
     shapes.resolve_body_types([c.shape for c in model.calls if c.shape], types)
+    sql_sources = []
     for path in _files(root, (".sql",), model):
         model.files_read += 1
-        model.tables += sql_tables(_read(path), str(path.relative_to(root)))
+        sql_sources.append(_read(path))
+        model.tables += sql_tables(sql_sources[-1], str(path.relative_to(root)))
+    for source in sql_sources:      # a later migration may add a key to a table from an earlier one
+        apply_sql_alterations(model.tables, source)
     for path in _files(root, (".yaml", ".yml", ".json"), model):
         operations = spec_operations(path, root)
         if operations:
@@ -866,7 +920,9 @@ def _audit_data_access(model: AppModel, add) -> None:
                              f"Reached from {name}. The statement will fail when it runs.", access)
 
         # A read that also writes.
-        if route.method == "GET":
+        # A handler that also serves POST usually writes only on the POST branch.
+        shares_handler = any(o is not route and o.file == route.file and o.line == route.line for o in model.routes)
+        if route.method == "GET" and not shares_handler:
             for access in route.data.accesses:
                 if access.kind == "write" and not LOG_LIKE.search(access.table):
                     add("likely", f"{name} changes `{access.table}`",
@@ -1007,7 +1063,7 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
 
     # Database structure.
     for table in model.tables:
-        if table.columns and not any(c.primary_key for c in table.columns):
+        if table.columns and not table.keyed and not any(c.primary_key for c in table.columns):
             add("likely", f"Table {table.name} has no primary key",
                 "Rows cannot be told apart reliably, and duplicates are not prevented.", _where(table))
         for column in table.columns:

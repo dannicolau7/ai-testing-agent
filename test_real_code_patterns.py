@@ -204,3 +204,114 @@ def test_a_role_the_handler_mentions_in_order_to_refuse_it_is_not_a_fault(tmp_pa
     table = "\n".join(permissions.table_markdown(model, policy))
     assert "| DELETE /api/v2/me | refuse | allow | refuse | no | sign-in; the handler mentions superuser |" in table
     assert "| POST /api/v2/admin/purge | refuse | allow | refuse | no | requires superuser |" in table
+
+
+# ── Found on a Flask application and an Express application ───────────────────
+
+FLASK = {
+    "app/schema.sql": (
+        "CREATE TABLE user (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL);\n"
+        "CREATE TABLE post (\n"
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+        "  author_id INTEGER NOT NULL,\n"
+        "  title TEXT NOT NULL,\n"
+        "  FOREIGN KEY (author_id) REFERENCES user (id)\n"
+        ");\n"
+    ),
+    "app/blog.py": (
+        "bp = Blueprint('blog', __name__, url_prefix='/blog')\n"
+        "def get_post(id, check_author=True):\n"
+        "    post = get_db().execute('SELECT p.id, title, author_id FROM post p JOIN user u ON p.author_id = u.id WHERE p.id = ?', (id,)).fetchone()\n"
+        "    if check_author and post['author_id'] != g.user['id']:\n"
+        "        abort(403)\n"
+        "    return post\n"
+        "@bp.route('/create', methods=('GET', 'POST'))\n"
+        "@login_required\n"
+        "def create():\n"
+        "    if request.method == 'POST':\n"
+        "        get_db().execute('INSERT INTO post (title, author_id) VALUES (?, ?)', (title, g.user['id']))\n"
+        "    return render_template('create.html')\n"
+        "@bp.route('/<int:id>/update', methods=('GET', 'POST'))\n"
+        "@login_required\n"
+        "def update(id):\n"
+        "    post = get_post(id)\n"
+        "    if request.method == 'POST':\n"
+        "        get_db().execute('UPDATE post SET title = ? WHERE id = ?', (title, id))\n"
+        "@bp.route('/<int:id>/visit')\n"
+        "@login_required\n"
+        "def visit(id):\n"
+        "    get_post(id)\n"
+        "    get_db().execute('UPDATE post SET title = ? WHERE id = ?', ('seen', id))\n"
+    ),
+}
+
+
+def test_a_flask_handler_shared_by_get_and_post_is_not_a_get_that_writes(tmp_path):
+    _write(tmp_path, FLASK)
+    report = app_audit.audit(app_audit.build_model(str(tmp_path)))
+    assert [f.title for f in report.findings] == ["GET /blog/<int:id>/visit changes `post`"], \
+        "the GET-only handler that writes is still reported; the shared ones are not"
+
+
+def test_an_owner_check_written_as_a_dictionary_key_is_seen(tmp_path):
+    _write(tmp_path, FLASK)
+    with_check = app_audit.audit(app_audit.build_model(str(tmp_path)))
+    assert not [f for f in with_check.findings if "who owns" in f.title]
+    blog = tmp_path / "app/blog.py"
+    blog.write_text(blog.read_text().replace(
+        "    if check_author and post['author_id'] != g.user['id']:\n        abort(403)\n", ""))
+    without = app_audit.audit(app_audit.build_model(str(tmp_path)))
+    assert "POST /blog/<int:id>/update reads `post` without checking who owns the row" in [f.title for f in without.findings]
+
+
+EXPRESS = (
+    "const router = Router();\n"
+    "router.get('/articles', auth.optional, async (req, res, next) => {});\n"
+    "router.put(\n"
+    "  '/articles/:slug',\n"
+    "  auth.required,\n"
+    "  async (req: Request, res: Response, next: NextFunction) => {\n"
+    "    const token = req.auth;\n"
+    "  },\n"
+    ");\n"
+    "router.delete(\n"
+    "  '/articles/:slug',\n"
+    "  async (req: Request, res: Response) => { const authorized = true; },\n"
+    ");\n"
+    "router.post('/articles/:slug/favorite', auth.optional, async (req, res) => {});\n"
+)
+
+
+def test_express_routes_spread_over_lines_keep_their_middleware(tmp_path):
+    (tmp_path / "article.controller.ts").write_text(EXPRESS)
+    model = app_audit.build_model(str(tmp_path))
+    evidence = {f"{r.method} {r.path}": r.auth_evidence for r in model.routes}
+    assert evidence == {
+        "GET /articles": [], "PUT /articles/:slug": ["auth.required"],
+        "DELETE /articles/:slug": [], "POST /articles/:slug/favorite": [],
+    }, "optional auth is not an access check, and names inside the handler are not middleware"
+    titles = [f.title for f in app_audit.audit(model).findings]
+    assert titles == ["DELETE /articles/:slug changes data and shows no access check",
+                      "POST /articles/:slug/favorite changes data and shows no access check"]
+
+
+def test_keys_added_by_a_later_migration_are_read(tmp_path):
+    _write(tmp_path, {
+        "migrations/001/migration.sql": (
+            'CREATE TABLE "User" ("id" SERIAL NOT NULL, "email" TEXT NOT NULL, PRIMARY KEY ("id"));\n'
+            'CREATE TABLE "Article" ("id" SERIAL NOT NULL, "authorId" INTEGER NOT NULL, PRIMARY KEY ("id"));\n'
+            'CREATE TABLE "_UserFavorites" ("A" INTEGER NOT NULL, "B" INTEGER NOT NULL);\n'
+            'CREATE TABLE "Orphan" ("A" INTEGER NOT NULL, "B" INTEGER NOT NULL);\n'
+            'CREATE UNIQUE INDEX "User.email_unique" ON "User"("email");\n'
+        ),
+        "migrations/002/migration.sql": (
+            'CREATE UNIQUE INDEX "_UserFavorites_AB_unique" ON "_UserFavorites"("A", "B");\n'
+            'ALTER TABLE "Article" ADD FOREIGN KEY ("authorId") REFERENCES "User"("id") ON DELETE CASCADE;\n'
+        ),
+    })
+    model = app_audit.build_model(str(tmp_path))
+    tables = {t.name: t for t in model.tables}
+    assert tables["_UserFavorites"].keyed and not tables["Orphan"].keyed
+    assert {c.name: c.unique for c in tables["User"].columns}["email"]
+    assert {c.name: c.foreign_key for c in tables["Article"].columns}["authorId"] == "User"
+    assert [f.title for f in app_audit.audit(model).findings] == ["Table Orphan has no primary key"]

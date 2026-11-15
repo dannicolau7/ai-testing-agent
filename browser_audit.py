@@ -231,7 +231,8 @@ def report(seen: Observation, model: Optional[app_audit.AppModel] = None) -> Bro
             "A user who follows it reaches an error page.", source)
 
     reported = set()
-    for call in seen.api:
+    # Requests a page sends together are answered in no fixed order; the report's order must not depend on it.
+    for call in sorted(seen.api, key=lambda c: (c.page, c.path, c.method, c.status)):
         key = (call.method, app_audit.normalize_path(call.path), call.status)
         if key in reported:
             continue

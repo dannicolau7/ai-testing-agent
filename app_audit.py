@@ -68,6 +68,7 @@ class Route:
     # The request and response this route declares. None when the source does not state it.
     shape: Optional[shapes.Shape] = None
     router: str = ""  # the variable the route is declared on (app, router), to apply its prefix
+    handler_source: str = field(default="", repr=False)  # JavaScript routes: the text of the route call
 
     @property
     def key(self) -> Tuple[str, str]:
@@ -455,7 +456,8 @@ def js_routes(source: str, filename: str) -> List[Route]:
             # auth.optional lets a caller through without signing in, so it is not an access check.
             if AUTH_WORDS.search(name) and not re.search(r"optional|maybe|public|anonymous", name, re.IGNORECASE):
                 middleware.append(name)
-        routes.append(Route(method.upper(), path, filename, _line(source, m.start()), "", middleware[:3]))
+        routes.append(Route(method.upper(), path, filename, _line(source, m.start()), "", middleware[:3],
+                            handler_source=call))
     return routes
 
 
@@ -774,6 +776,7 @@ def build_model(root_path: str) -> AppModel:
     apply_router_prefixes(model.routes, trees)
     _attach_handler_data(model, trees)
     types: Dict[str, Tuple[Dict[str, bool], bool]] = {}
+    js_sources: List[Tuple[str, str]] = []
     for path in _files(root, (".js", ".jsx", ".ts", ".tsx", ".mjs", ".vue", ".svelte"), model):
         source, rel = _read(path), str(path.relative_to(root))
         if path.suffix.lower() in (".ts", ".tsx", ".vue", ".svelte"):
@@ -785,12 +788,28 @@ def build_model(root_path: str) -> AppModel:
         model.files_read += 1
         model.routes += js_routes(source, rel)
         model.calls += js_calls(source, rel)
+        js_sources.append((rel, source))
     shapes.resolve_body_types([c.shape for c in model.calls if c.shape], types)
+    if any(r.handler_source for r in model.routes):
+        import js_data_access
+
+        js_index = js_data_access.index_functions(js_sources)
+        for route in model.routes:
+            if route.handler_source:
+                route.data = js_data_access.handler_data(route.handler_source, route.file, route.line, js_index)
     sql_sources = []
     for path in _files(root, (".sql",), model):
         model.files_read += 1
-        sql_sources.append(_read(path))
-        model.tables += sql_tables(sql_sources[-1], str(path.relative_to(root)))
+        source, rel = _read(path), str(path.relative_to(root))
+        # A table dropped by this file is gone, unless the file creates it again further down
+        # (the usual "DROP TABLE IF EXISTS x; CREATE TABLE x" at the top of a schema).
+        created_here = sql_tables(source, rel)
+        for m in re.finditer(r"DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`\"\[]?([\w.]+)", source, re.IGNORECASE):
+            name, drop_line = m.group(1).split(".")[-1].lower(), _line(source, m.start())
+            model.tables = [t for t in model.tables if t.name.lower() != name]
+            created_here = [t for t in created_here if t.name.lower() != name or t.line > drop_line]
+        sql_sources.append(source)
+        model.tables += created_here
     for source in sql_sources:      # a later migration may add a key to a table from an earlier one
         apply_sql_alterations(model.tables, source)
     for path in _files(root, (".yaml", ".yml", ".json"), model):
@@ -806,9 +825,11 @@ def build_model(root_path: str) -> AppModel:
     for route in model.routes:
         if route.data is None:
             continue
+        by_lower = {t.name.lower(): t.name for t in model.tables}
         for access in route.data.accesses:
             if not access.sql:
-                access.table = classes.get(access.table, "")
+                # A SQLAlchemy or SQLModel class, or a Prisma model named like its table.
+                access.table = classes.get(access.table) or by_lower.get(access.table.lower(), "")
         # A capitalised name passed to the ORM that is not a known model is not data access.
         route.data.accesses = [a for a in route.data.accesses if a.table]
     return model
@@ -846,7 +867,7 @@ PUBLIC_BY_NATURE = re.compile(
 OPERATIONAL = re.compile(r"^/$|^/(health|healthz|ready|readyz|live|livez|metrics|ping|status|docs|openapi\.json)$")
 # A column that says whose row this is.
 OWNER_COLUMN = re.compile(
-    r"^(user|owner|customer|account|tenant|org|organi[sz]ation|member|author|creator|created_by)(_id)?$",
+    r"^(user|owner|customer|account|tenant|org|organi[sz]ation|member|author|creator|created_?by)(_?id)?$",
     re.IGNORECASE,
 )
 # Evidence that the caller is meant to reach every row.
@@ -855,20 +876,39 @@ ADMIN_WORDS = re.compile(r"admin|staff|superuser|role|permission|scope", re.IGNO
 LOG_LIKE = re.compile(r"log|audit|event|metric|stat|view|visit|session|token|cache|history", re.IGNORECASE)
 
 
+_ADDRESSES_ONE_ROW = re.compile(r"\{\}(/(edit|update|delete|remove|destroy|patch))?$", re.IGNORECASE)
+
+
 def ownership_gap(route: Route, all_tables: List[Table]):
-    """(table, owner column, access) when a route reaches a row by id with no sign of an owner check."""
-    if route.data is None or "{}" not in normalize_path(route.path):
+    """(table, owner column, access) when a route reaches a row by id with no sign of an owner check.
+
+    Narrow on purpose. On real applications a wider rule reported every public article and
+    every "favourite this" button:
+    - the route must address one row itself (/orders/{id}, /orders/{id}/edit), not an action
+      on someone else's row (/articles/{slug}/favorite);
+    - it must ask for sign-in: a row anyone may read without signing in is public by design;
+    - a route that changes data is judged on the table it changes, not on rows it looks up.
+    """
+    if route.data is None or not _ADDRESSES_ONE_ROW.search(normalize_path(route.path)):
         return None
-    if any(ADMIN_WORDS.search(e) for e in route.auth_evidence):
+    if not route.auth_evidence or any(ADMIN_WORDS.search(e) for e in route.auth_evidence):
         return None
+    written = {a.table.lower() for a in route.data.accesses if a.kind == "write"}
     tables = {t.name.lower(): t for t in all_tables}
-    mentioned = {n.lower() for n in route.data.names}
+    if data_access.GUARD in route.data.checked:
+        return None
+    # Compared or filtered on, not merely mentioned: selecting a column does not check it.
+    mentioned = {n.lower() for n in route.data.checked}
     for access in route.data.accesses:
         table = tables.get(access.table.lower())
         if table is None or (access.kind == "write" and not access.filters):
             continue
+        if route.method in MUTATING and access.table.lower() not in written:
+            continue
         owners = [c.name for c in table.columns if OWNER_COLUMN.match(c.name) and not c.primary_key]
-        if owners and not any(o.lower() in mentioned for o in owners):
+        # post.author_id and post.author.id both look at the owner: the relation's name counts too.
+        stems = {re.sub(r"_?id$", "", o, flags=re.IGNORECASE).lower() for o in owners} - {"", "user"}
+        if owners and not any(o.lower() in mentioned for o in owners) and not (stems & mentioned):
             return table, owners[0], access
     return None
 
@@ -938,12 +978,13 @@ def _audit_data_access(model: AppModel, add) -> None:
             table, owner, access = gap
             add("likely", ownership_title(route, table, access),
                 f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs "
-                "mentions it. A signed-in user may be able to reach another user's row by changing "
-                "the id.", f"{access.file}:{access.line}")
+                "compares it or filters on it. A signed-in user may be able to reach another user's "
+                "row by changing the id.", f"{access.file}:{access.line}")
 
     if followed and touched and model.tables:
         for table in model.tables:
-            if table.name.lower() not in touched:
+            # A table whose name starts with an underscore is a link table an ORM manages itself.
+            if table.name.lower() not in touched and not table.name.startswith("_"):
                 add("unclear", f"No route reads or writes table `{table.name}`",
                     "It may be used by code this audit did not follow, or it may be unused.", _where(table))
 
@@ -1080,7 +1121,8 @@ def audit(model: AppModel, requirements: Optional[list] = None, links: Optional[
     report.not_examined += [
         "Handler logic beyond data access: for Python handlers this audit follows the code to the "
         "SQL and ORM calls it makes; it does not check conditions, validation or what is returned.",
-        "Queries assembled across several variables, and data access in JavaScript backends.",
+        "Queries assembled across several variables or by a query builder. JavaScript and TypeScript "
+        "backends are read as text: Prisma calls and SQL strings are found, column names are not checked.",
         "Request and response shapes that the source does not state: bodies passed as a variable, "
         "handlers other than FastAPI with Pydantic models, field types, and what the frontend reads "
         "from a response.",

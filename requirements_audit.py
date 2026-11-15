@@ -191,7 +191,7 @@ def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] =
                     problems.append("no ownership check")
                     add("wrong_now", f"{req.id} limits {route.method} {route.path} to the owner, but the code does not check who owns the row",
                         f"\u201c{text[:140]}\u201d `{table.name}` has an owner column (`{owner}`), and nothing this "
-                        "handler runs mentions it.", f"{access.file}:{access.line}")
+                        "handler runs compares it or filters on it.", f"{access.file}:{access.line}")
                     result.supersedes.add(app_audit.ownership_title(route, table, access))
                 elif route.data is None or not route.data.accesses:
                     checked[-1] = "ownership (could not be read)"

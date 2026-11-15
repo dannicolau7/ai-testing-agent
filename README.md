@@ -190,6 +190,22 @@ The model picks, from a numbered list, the one route each requirement is about, 
 is shown route and handler names, never source code, and nothing it proposes is used until
 a person confirms it.
 
+### Who may do what
+
+```bash
+python cli.py permissions path/to/app --init --roles customer,admin   # a draft table from the code
+python cli.py audit path/to/app --permissions permissions.yaml        # the code against the table
+python cli.py permissions --tests permissions.yaml                    # one test for every cell
+```
+
+The permissions table lists, for each route, which roles are allowed and whether a caller
+may reach only their own rows. `--init` writes a draft describing what the code appears to
+do today; you correct it to what the product should do. `audit --permissions` then reports
+a route that must refuse someone and shows no check for it, and routes nobody wrote a rule
+for. `--tests` writes one pytest test per role and route, including every cell that must be
+refused. Run those against a test environment only: they send real requests. A test with no
+token for its role is skipped, never passed.
+
 ### Which model, and what it costs
 
 | Setting | Model | Cost |

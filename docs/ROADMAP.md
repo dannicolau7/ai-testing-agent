@@ -33,8 +33,8 @@ audit tool that overstates what it checked is worse than no tool.
 | Backend routes from source (FastAPI, Flask, Express) | Reads decorators and route definitions only |
 | Chains across endpoints (create → read → update → delete, login → profile) | Works |
 | Running generated tests | Works as of this change; it used to be simulated |
-| Link from a requirement to the code and tests | Missing |
-| Proof that a test can fail | Missing |
+| Link from a requirement to its tests | Works: `python cli.py trace` (not yet to the code) |
+| Proof that a test can fail | Works for tests that call the system through `requests`: `python cli.py validate` |
 | Database | Missing |
 | Permissions (who may do what) | Detects that auth is needed; no model of roles |
 | Frontend | Missing |
@@ -50,7 +50,7 @@ Each stage is useful on its own and makes the next one possible.
 - Placeholder tests are skipped, never passed.
 - Model calls work with current models.
 
-### Stage 2: traceability
+### Stage 2: traceability (first version done)
 
 Every requirement gets an id. Every generated test names the requirement it checks. The
 report then shows three lists that matter more than a pass count:
@@ -61,11 +61,25 @@ report then shows three lists that matter more than a pass count:
 
 This is the cheapest step towards "report what is wrong", and it needs no new analysis.
 
-### Stage 3: proof that a test checks something
+Built: `python cli.py trace requirements.md tests/` reads requirement ids (REQ-12, US-7,
+AC-2.1) and the ids each test points at, and lists requirements with no test, tests with
+no requirement, and tests that point at a requirement that does not exist.
+
+Still to do: generated tests do not yet carry requirement ids, and nothing links a
+requirement to the code that implements it.
+
+### Stage 3: proof that a test checks something (first version done)
 
 For each generated test, change the behaviour it claims to check (for example, make the
 endpoint return the wrong status) and confirm the test fails. A test that still passes is
 reported as not validating anything. This is what turns generated tests into evidence.
+
+Built: `python cli.py validate tests/` runs the tests normally, then again with every HTTP
+response replaced by a wrong one, and sorts them: validated, not validating, made no
+request, already failing.
+
+Still to do: it covers only tests that use the `requests` library, and tries one kind of
+wrong response. Changing the application itself (a real mutation) would be stronger.
 
 ### Stage 4: a behaviour model of the backend
 

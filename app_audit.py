@@ -130,6 +130,7 @@ class AuditReport:
     model: AppModel
     findings: List[Finding] = field(default_factory=list)
     not_examined: List[str] = field(default_factory=list)
+    requirements: Optional[object] = None  # requirements_audit.RequirementsResult, when requirements were given
 
     def of(self, group: str) -> List[Finding]:
         return [f for f in self.findings if f.group == group]
@@ -562,6 +563,29 @@ ADMIN_WORDS = re.compile(r"admin|staff|superuser|role|permission|scope", re.IGNO
 LOG_LIKE = re.compile(r"log|audit|event|metric|stat|view|visit|session|token|cache|history", re.IGNORECASE)
 
 
+def ownership_gap(route: Route, all_tables: List[Table]):
+    """(table, owner column, access) when a route reaches a row by id with no sign of an owner check."""
+    if route.data is None or "{}" not in normalize_path(route.path):
+        return None
+    if any(ADMIN_WORDS.search(e) for e in route.auth_evidence):
+        return None
+    tables = {t.name.lower(): t for t in all_tables}
+    mentioned = {n.lower() for n in route.data.names}
+    for access in route.data.accesses:
+        table = tables.get(access.table.lower())
+        if table is None or (access.kind == "write" and not access.filters):
+            continue
+        owners = [c.name for c in table.columns if OWNER_COLUMN.match(c.name) and not c.primary_key]
+        if owners and not any(o.lower() in mentioned for o in owners):
+            return table, owners[0], access
+    return None
+
+
+def ownership_title(route: Route, table: Table, access) -> str:
+    verb = "reads" if access.kind == "read" else "changes"
+    return f"{route.method} {route.path} {verb} `{table.name}` without checking who owns the row"
+
+
 def _audit_data_access(model: AppModel, add) -> None:
     """Checks that need to know what a handler reads and writes."""
     followed = [r for r in model.routes if r.data is not None]
@@ -613,25 +637,15 @@ def _audit_data_access(model: AppModel, add) -> None:
                     break
 
         # A row fetched by its id, with no sign that the caller owns it.
-        if "{}" not in normalize_path(route.path):
-            continue
         if route.method in MUTATING and not route.auth_evidence:
             continue  # already reported: no access check at all
-        if any(ADMIN_WORDS.search(e) for e in route.auth_evidence):
-            continue
-        for access in route.data.accesses:
-            table = tables.get(access.table.lower())
-            if table is None or (access.kind == "write" and not access.filters):
-                continue
-            owners = [c.name for c in table.columns if OWNER_COLUMN.match(c.name) and not c.primary_key]
-            mentioned = {n.lower() for n in route.data.names}
-            if owners and not any(o.lower() in mentioned for o in owners):
-                verb = "reads" if access.kind == "read" else "changes"
-                add("likely", f"{name} {verb} `{table.name}` without checking who owns the row",
-                    f"`{table.name}` has an owner column (`{owners[0]}`), and nothing this handler runs "
-                    "mentions it. A signed-in user may be able to reach another user's row by changing "
-                    "the id.", f"{access.file}:{access.line}")
-                break
+        gap = ownership_gap(route, model.tables)
+        if gap is not None:
+            table, owner, access = gap
+            add("likely", ownership_title(route, table, access),
+                f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs "
+                "mentions it. A signed-in user may be able to reach another user's row by changing "
+                "the id.", f"{access.file}:{access.line}")
 
     if followed and touched and model.tables:
         for table in model.tables:
@@ -675,8 +689,11 @@ def _names_a_table(column: str, tables: List[Table]) -> bool:
     return False
 
 
-def audit(model: AppModel) -> AuditReport:
+def audit(model: AppModel, requirements: Optional[list] = None) -> AuditReport:
+    """Compare the layers. With requirements (from traceability.extract_requirements), also
+    check what each requirement says against the code it is linked to."""
     report = AuditReport(model=model)
+    report.requirements = None
     add = lambda group, title, detail, where: report.findings.append(  # noqa: E731
         Finding(group, title, detail, where))
     route_keys = {r.key for r in model.routes}
@@ -769,11 +786,22 @@ def audit(model: AppModel) -> AuditReport:
         "handlers other than FastAPI with Pydantic models, field types, and what the frontend reads "
         "from a response.",
         "The running application: nothing was started, called or queried.",
-        "Requirements: use `trace` to compare requirements with tests.",
+        "Requirements: none were given. Pass --requirements to check the code against them.",
         "Access checks applied globally (middleware, gateways) or in languages other than Python and JavaScript/TypeScript.",
         "Frontend requests made through wrappers other than fetch and axios.",
     ]
     report.not_examined += [f"Skipped: {item}" for item in model.files_skipped]
+    if requirements is not None:
+        import requirements_audit
+
+        report.requirements = requirements_audit.check(model, requirements)
+        # A requirement turns a suspicion into a fault: drop the weaker copy of the same finding.
+        report.findings = [f for f in report.findings if f.title not in report.requirements.supersedes]
+        report.findings += report.requirements.findings
+        report.not_examined = [n for n in report.not_examined if not n.startswith("Requirements:")]
+        report.not_examined += report.requirements.not_examined
+    order = {"wrong_now": 0, "likely": 1, "unclear": 2}
+    report.findings.sort(key=lambda f: order.get(f.group, 3))   # stable: keeps the order within a group
     return report
 
 
@@ -803,13 +831,30 @@ def render_markdown(report: AuditReport) -> str:
         f"| Frontend API calls | {len([c for c in m.calls if c.path])} |",
         f"| Operations in the API spec | {len(m.spec_operations)} |",
         f"| Database tables | {len(m.tables)} |",
+        *([f"| Requirements linked to code | {report.requirements.linked} of {report.requirements.total} |"]
+          if report.requirements else []),
         f"| Routes with a declared request or response shape | {_shaped(m.routes)} of {len(m.routes)} |",
         f"| Routes whose data access was found | {len([r for r in m.routes if r.data and r.data.accesses])} of {len(m.routes)} |",
         "",
-        "This compares the layers with each other. It does not run the application or know the",
-        "requirements, so a clean result means the layers agree, not that the product is right.",
-        "",
     ]
+    if report.requirements:
+        lines += [
+            "This compares the layers with each other and with the requirements that name a route.",
+            "It does not run the application, so a clean result means the source agrees with what",
+            "was checked, not that the product is right.",
+            "",
+        ]
+    else:
+        lines += [
+            "This compares the layers with each other. It does not run the application or know the",
+            "requirements, so a clean result means the layers agree, not that the product is right.",
+            "",
+        ]
+    if report.requirements and report.requirements.rows:
+        lines += ["## Requirements", "", "| Requirement | Linked to | Checked | Result |", "|---|---|---|---|"]
+        for row in report.requirements.rows:
+            lines.append(f"| {row.id} | {row.linked_to or 'nothing'} | {row.checked or 'nothing'} | {row.result} |")
+        lines.append("")
     for key, title, meaning in _GROUPS:
         items = report.of(key)
         lines += [f"## {title} ({len(items)})", "", meaning, ""]

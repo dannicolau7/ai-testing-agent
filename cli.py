@@ -911,7 +911,19 @@ def cmd_audit(args):
     if not Path(args.path).is_dir():
         print(f"❌ Not a directory: {args.path}")
         sys.exit(2)
-    report = app_audit.audit(app_audit.build_model(args.path))
+    requirements = None
+    if args.requirements:
+        import traceability
+
+        try:
+            requirements = traceability.extract_requirements(Path(args.requirements).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read requirements file: {exc}")
+            sys.exit(2)
+        if not requirements:
+            print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
+            sys.exit(2)
+    report = app_audit.audit(app_audit.build_model(args.path), requirements)
     markdown = app_audit.render_markdown(report)
     if args.output:
         Path(args.output).write_text(markdown, encoding='utf-8')
@@ -1366,6 +1378,8 @@ Examples:
     )
     audit_parser.add_argument('path', help='Root directory of the application source')
     audit_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
+    audit_parser.add_argument('--requirements', '-r',
+                              help='Requirements file; also check the code against requirements that name a route')
 
     # Traceability (roadmap stage 2)
     trace_parser = subparsers.add_parser(

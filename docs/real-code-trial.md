@@ -137,6 +137,35 @@ The misses, and why:
 - **Express owner check.** The check is in a TypeScript service using Prisma. The audit
   does not read data access in JavaScript or TypeScript at all.
 
+## Trial 4: closing the largest hole
+
+Trial 3's Express miss came from not reading JavaScript or TypeScript data access at all.
+`js_data_access.py` now reads it as text: Prisma calls and SQL strings, following calls into
+the project's own functions. On the Express application it finds the tables for 19 of 20
+routes.
+
+Turning it on immediately produced six new false alarms on that application: every public
+article and every "favourite this article" route was reported as missing an ownership
+check. Two rules were tightened as a result, for Python and JavaScript alike:
+
+- **A mention is not a check.** The owner column must be compared or filtered on
+  (`note.authorId !== userId`, `WHERE owner_id = ?`), or a function whose name says it
+  decides access must be called. Selecting the column does not count.
+- **The route must address one row and need sign-in.** `/orders/{id}` and
+  `/orders/{id}/edit` qualify. An action on someone else's row (`/articles/{slug}/favorite`)
+  and a row anyone may read without signing in do not.
+
+Result: the planted Express owner-check fault is now found, with no finding on the three
+applications beyond the two already listed.
+
+**12 of 14 planted faults with no inputs, 13 of 14 with a permissions table.** Still missed:
+the dropped foreign key on `owner_id`.
+
+A regression was also caught by re-running Trial 3 after the change: handling `DROP TABLE`
+removed the Flask application's tables, because its schema drops each table before creating
+it. Three planted faults went from found to missed until it was fixed. The planted-fault
+run is worth keeping as a check on every change to the readers; it is not yet automated.
+
 ## What these trials do not show
 
 - **Three applications, all small and well kept.** Larger and messier code will expose more.
@@ -154,5 +183,5 @@ The gap between "works on our sample" and "works on real code" was large: 17 fin
 round on real code removed a class of false alarm that no amount of work on the sample
 would have shown.
 
-The largest known hole is data access in JavaScript and TypeScript backends. After that:
-Django, request shapes through generated clients, and a real requirements document.
+Next: Django, request shapes through generated clients, query builders in JavaScript
+(Knex, Sequelize, TypeORM), and a real requirements document.

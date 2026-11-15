@@ -182,7 +182,7 @@ def compare(model: app_audit.AppModel, policy: Policy) -> List[app_audit.Finding
                 if gap is not None:
                     table, owner, access = gap
                     add("wrong_now", f"{name} is limited to the owner's rows, but the code does not check who owns the row",
-                        f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs mentions it.",
+                        f"`{table.name}` has an owner column (`{owner}`), and nothing this handler runs compares it or filters on it.",
                         f"{access.file}:{access.line}")
                 elif route.data is None or not route.data.accesses:
                     add("unclear", f"{name} is limited to the owner's rows, and the handler's data access could not be read",

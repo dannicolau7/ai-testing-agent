@@ -150,8 +150,9 @@ database tables (SQL `CREATE TABLE` in `.sql` files or Python strings, SQLAlchem
 - **Wrong now:** the frontend calls a route that does not exist; the spec documents an
   operation nobody implemented; the spec says a route needs authentication and the code
   shows no check.
-  For Python backends it also follows each handler to the SQL and SQLAlchemy calls it
-  makes, and reports code that uses a table or column the database does not define.
+  For Python backends it also follows each handler to the SQL and SQLAlchemy or SQLModel
+  calls it makes, and reports code that uses a table or column the database does not define.
+  JavaScript and TypeScript backends are read more roughly: Prisma calls and SQL strings.
   For FastAPI backends it compares request bodies, query parameters and responses: a field
   the backend requires that the frontend does not send or the spec does not list, and a
   response field the spec promises that the backend does not return. Frontend bodies are

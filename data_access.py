@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 MAX_DEPTH = 4
+GUARD = "(a call that looks like a permission check)"
+# Functions whose name says they decide whether the caller may proceed.
+GUARD_CALL = re.compile(r"owner|permission|authori[sz]e|allowed|can_|has_access|check_access|ensure_|forbid", re.IGNORECASE)
 
 _SQL_START = r"^\s*(SELECT\b.+?\bFROM\b|INSERT\s+INTO\b|UPDATE\s+[\w.\"`]+\s+SET\b|DELETE\s+FROM\b)"
 # Text counts as SQL when its keywords are in capitals, or (any case) when it is handed
@@ -59,6 +62,9 @@ class DataAccess:
 class HandlerData:
     accesses: List[DataAccess] = field(default_factory=list)
     names: Set[str] = field(default_factory=set)       # every name the handler's code mentions
+    # Names the code compares or filters on: `item.owner_id != user.id`, `WHERE owner_id = ?`.
+    # A column that is only selected or assigned has not been checked.
+    checked: Set[str] = field(default_factory=set)
     functions_followed: int = 0
 
 
@@ -240,6 +246,7 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
                 access.inserted = names
                 access.from_parameter = bool(params & set(names))
                 data.names.update(access.filters)
+                data.checked.update(access.filters)
             data.accesses.extend(found)
         nodes = sorted(_walk_own(node), key=lambda n: (getattr(n, "lineno", 0), getattr(n, "col_offset", 0)))
         for child in nodes:
@@ -253,6 +260,21 @@ def handler_data(func: ast.AST, file: str, index: FunctionIndex) -> HandlerData:
                 key = child.slice
                 if isinstance(key, ast.Constant) and isinstance(key.value, str):
                     data.names.add(key.value)        # post["author_id"]
+            if isinstance(child, ast.Compare):
+                for part in ast.walk(child):
+                    if isinstance(part, ast.Name):
+                        data.checked.add(part.id)
+                    elif isinstance(part, ast.Attribute):
+                        data.checked.add(part.attr)
+                    elif isinstance(part, ast.Subscript) and isinstance(part.slice, ast.Constant) \
+                            and isinstance(part.slice.value, str):
+                        data.checked.add(part.slice.value)
+            if isinstance(child, ast.Call):
+                called = _last(child.func)
+                if called in ("filter_by", "get_by", "find_by", "where", "filter"):
+                    data.checked.update(k.arg for k in child.keywords if k.arg)
+                if GUARD_CALL.search(called):
+                    data.checked.add(GUARD)
             if isinstance(child, ast.Call) and _last(child.func) in _RUNS_SQL and child.args:
                 direct = _sql_text(child.args[0], any_case=True)
                 if direct is not None and id(child.args[0]) not in consumed:

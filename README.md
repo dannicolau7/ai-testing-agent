@@ -13,7 +13,7 @@ Autonomous pytest generation from requirements documents and OpenAPI specs.
 
 Feed it a requirements document (txt, md, PDF, docx) or an OpenAPI/Swagger spec. It reads the endpoints and user stories, generates a comprehensive pytest suite, runs the tests, and if any fail, sends the tracebacks to Claude for root cause analysis.
 
-Works without an API key — mock AI produces structurally valid tests for prototyping and CI pipelines. Set `ANTHROPIC_API_KEY` to get full Claude-generated test cases including security scenarios, schema edge cases, and auth flows.
+Without an API key it writes placeholder tests that are reported as skipped, so you can see the shape of the output. Set `ANTHROPIC_API_KEY` for real, model-written test cases including security scenarios.
 
 ```
 requirements.txt / openapi.yaml
@@ -99,26 +99,42 @@ cp .env.example .env
 ## Quick start
 
 ```bash
-# Works without an API key
+# Runs without an API key, but see the note below
 echo "POST /api/checkout — validate card, process payment, return confirmation or error" > reqs.txt
 python cli.py run reqs.txt
 ```
 
-Output:
-```
-Analyzing requirements...
-Generating test cases...
+Without `ANTHROPIC_API_KEY` the tool writes **placeholder tests**. They show the shape of
+the output and check nothing, so they are reported as skipped, never as passed:
 
-  ✓ test_valid_payment_returns_200
-  ✓ test_missing_card_number_returns_400
-  ✓ test_expired_card_returns_402
-  ✓ test_insufficient_funds_returns_402
-  ✓ test_invalid_cvv_returns_422
-  ✓ test_concurrent_checkout_idempotency
-
-Generated 6 test cases → test_output/test_checkout.py
-Report → test_output/test_report.html
 ```
+✅ Generated 4 pytest files
+🧪 Executing tests...
+✅ Tests ran: 0 passed, 0 failed, 0 errors, 4 skipped
+⚠️  Nothing was actually checked: every test was skipped (placeholder output?).
+```
+
+With a key set, the tests are written by the model and then really run with pytest. The
+counts in the report are pytest's own.
+
+### Check the tests themselves
+
+Two commands that need no model:
+
+```bash
+python cli.py trace requirements.md tests/     # which requirement does each test check?
+python cli.py validate tests/                  # does each test fail when the response is wrong?
+```
+
+- `trace` reads requirement ids such as `REQ-12` or `US-7` and lists requirements with no
+  test, tests that point at no requirement, and tests that point at a requirement that does
+  not exist. A test points at a requirement with `@pytest.mark.requirement("REQ-12")`, a
+  `Covers: REQ-12` line in its docstring, or a `# Requirement: REQ-12` comment above it.
+- `validate` runs the tests, then runs them again with every HTTP response replaced by a
+  wrong one. A test that still passes does not check the response it gets. It covers tests
+  that call the system through the `requests` library.
+
+Both exit 1 when they find gaps. `docs/ROADMAP.md` says where this is going.
 
 From an OpenAPI spec (auto-detected by `.yaml` extension):
 

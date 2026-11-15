@@ -38,7 +38,7 @@ audit tool that overstates what it checked is worse than no tool.
 | Proof that a test can fail | Works for tests that call the system through `requests`: `python cli.py validate` |
 | Database | Reads SQL and SQLAlchemy tables; checks keys only. Migrations not read |
 | Permissions (who may do what) | A table of roles against routes, compared with the code; one generated test per cell |
-| Frontend | Reads `fetch` and `axios` calls from source; no browser |
+| Frontend | Reads `fetch` and `axios` calls from source; `browse` opens the running app in a browser |
 | Re-checking on change | Missing |
 
 ## Build order
@@ -162,7 +162,18 @@ Build the table of roles against actions from the requirements. Generate a test 
 cell, including the ones that must be refused. Missing refusals are the most common
 serious finding in real products.
 
-### Stage 7: the frontend
+### Stage 7: the frontend (first version done)
+
+Built (`browser_audit.py`): `python cli.py browse URL` opens the running application in a
+real browser, follows same-site links, and reports pages that throw errors, API requests
+answered 404, 405 or 5xx, and broken links. With `--source` it lists which backend routes
+it saw being called. It never fills in forms and clicks buttons only on request, skipping
+destructive-looking labels. `examples/browser-demo` is a small site with planted problems.
+
+Still to do: it has been run on the demo site only. It does not sign in through a login
+form, fill in forms, or carry out a user-facing requirement step by step. It does not yet
+check that a control hidden in the interface is also refused by the server; the generated
+permission tests cover the server side of that.
 
 Drive the application in a browser. Check that each user-facing requirement can be carried
 out, that the frontend and backend agree on what is allowed, and that a control hidden in

@@ -62,6 +62,11 @@ class AITestingAgent:
         """
         self.api_key = api_key or os.getenv('ANTHROPIC_API_KEY')
         self.verbose = verbose
+        # A local model (ATA_MODEL_URL) is used in place of the Anthropic API when set.
+        self.local_model = None
+        if os.getenv('ATA_MODEL_URL'):
+            import model_backend
+            self.local_model = model_backend.resolve()
 
         # Initialize analytics (privacy-first, opt-out supported)
         self.analytics = None
@@ -1053,7 +1058,7 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
         if failures:
             print(f"\n🔍 Analyzing {len(failures)} failure(s) with AI...")
             # Only pass _call_ai if we have a real API key
-            call_ai = self._call_ai if self.api_key and ANTHROPIC_AVAILABLE else None
+            call_ai = self._call_ai if self.local_model or (self.api_key and ANTHROPIC_AVAILABLE) else None
             analyses = analyzer.analyze_all(failures, call_ai_fn=call_ai)
             report = analyzer.format_report(analyses)
             print(report)
@@ -1247,6 +1252,13 @@ Return ONLY valid Python code. No markdown fences, no explanations."""
         Returns:
             AI response as string or structured data
         """
+        if self.local_model is not None:
+            try:
+                return self.local_model.complete(prompt, max_tokens=8000)
+            except Exception as e:
+                print(f"⚠️  Local model error: {str(e)[:100]}. Using mock fallback.")
+                return self._mock_ai_response(prompt)
+
         if self.api_key and ANTHROPIC_AVAILABLE:
             try:
                 return self._call_claude_api(prompt)

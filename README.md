@@ -178,6 +178,31 @@ can read from the wording: sign-in, "their own" (ownership), administrators only
 it was linked to, what was checked and the result. Unlinked requirements are listed as
 unclear, never as met.
 
+Most requirements do not name a route. A model can propose the links, and you confirm them:
+
+```bash
+python cli.py link path/to/app -r requirements.md -o links.yaml    # a model proposes
+# read links.yaml, set `confirmed: true` on the right ones
+python cli.py audit path/to/app -r requirements.md --links links.yaml
+```
+
+The model picks, from a numbered list, the one route each requirement is about, or none. It
+is shown route and handler names, never source code, and nothing it proposes is used until
+a person confirms it.
+
+### Which model, and what it costs
+
+| Setting | Model | Cost |
+|---|---|---|
+| nothing | none: `audit`, `trace` and `validate` need no model | free |
+| `ATA_MODEL_URL=http://localhost:11434/v1` and `ATA_MODEL_NAME=llama3.2` | a local model (Ollama, llama.cpp, LM Studio, or any OpenAI-compatible server) | free; nothing leaves the machine |
+| `ANTHROPIC_API_KEY=...` | Claude through the Anthropic API | paid per use |
+
+A local model wins when both are set, so nobody is billed by surprise. A small local model
+is much weaker than Claude: on the demo's nine plain-worded requirements, Llama 3.2 (3B)
+proposed the right answer for seven and a wrong route for two, in about 20 seconds on a
+CPU. That is why every proposal needs a person's confirmation.
+
 It exits 1 when there is a "wrong now" finding. It compares the layers with each other; it
 reads data access but not the rest of the handler logic, and does not know your requirements, so a clean result means the layers
 agree, not that the product is right.

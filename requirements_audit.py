@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 
 import app_audit
 from traceability import ID_PATTERN
@@ -113,7 +113,10 @@ def _mentions(text: str, word: str) -> bool:
     return bool(re.search(r"(?<![\w])" + re.escape(word) + r"(?![\w])", text, re.IGNORECASE))
 
 
-def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
+def check(model: app_audit.AppModel, requirements: list, links: Optional[dict] = None,
+          link_notes: Optional[List[str]] = None) -> RequirementsResult:
+    """links: confirmed links by requirement id (requirement_links.as_overrides)."""
+    links = links or {}
     result = RequirementsResult(total=len(requirements))
     known = {r.id for r in requirements}
     by_handler = _handler_references(model)
@@ -147,6 +150,20 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
                 traced_routes.add(index)
                 if model.routes[index] not in routes:
                     routes.append(model.routes[index])
+        link = links.get(req.id)
+        wanted: Set[str] = set(link.checks) if link else set()
+        if link:
+            for name in link.routes:
+                method, _, path = name.partition(" ")
+                key = (method.upper(), app_audit.normalize_path(path))
+                found = [(i, r) for i, r in enumerate(model.routes) if app_audit._match(key, {r.key})]
+                if not found:
+                    add("unclear", f"The confirmed link for {req.id} names {name}, which the backend no longer defines",
+                        "The route was removed or renamed after the link was confirmed.", "links file")
+                for i, r in found:
+                    traced_routes.add(i)
+                    if r not in routes:
+                        routes.append(r)
         for name in missing:
             add("wrong_now", f"{req.id} describes {name}, which the backend does not define",
                 f"\u201c{req.text[:140]}\u201d Nothing implements this route.", f"requirements line {req.line}")
@@ -156,7 +173,7 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
         columns: List[str] = []
         text = req.text
 
-        if routes and SIGNED_IN.search(text) and not PUBLIC.search(text):
+        if routes and ("sign_in" in wanted or (SIGNED_IN.search(text) and not PUBLIC.search(text))):
             checked.append("sign-in")
             for route in routes:
                 if not route.auth_evidence:
@@ -165,7 +182,7 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
                         f"\u201c{text[:140]}\u201d No dependency, decorator or middleware on this route looks like "
                         "an access check.", app_audit._where(route))
                     result.supersedes.add(f"{route.method} {route.path} changes data and shows no access check")
-        if routes and OWN.search(text):
+        if routes and ("ownership" in wanted or OWN.search(text)):
             checked.append("ownership")
             for route in routes:
                 gap = app_audit.ownership_gap(route, model.tables)
@@ -178,7 +195,7 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
                     result.supersedes.add(app_audit.ownership_title(route, table, access))
                 elif route.data is None or not route.data.accesses:
                     checked[-1] = "ownership (could not be read)"
-        if routes and ADMIN.search(text):
+        if routes and ("admin_only" in wanted or ADMIN.search(text)):
             checked.append("admin only")
             for route in routes:
                 names = " ".join(route.auth_evidence) + " " + " ".join(sorted(route.data.names) if route.data else [])
@@ -187,14 +204,15 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
                     add("likely", f"{req.id} limits {route.method} {route.path} to administrators, but no role check is visible",
                         f"\u201c{text[:140]}\u201d Nothing on the route or in its handler mentions an admin, role or "
                         "permission. Any signed-in user may be able to call it.", app_audit._where(route))
-        if UNIQUE.search(text) and model.tables:
+        named = {c[len("unique:"):].lower() for c in wanted if c.startswith("unique:")}
+        if (UNIQUE.search(text) or named) and model.tables:
             for table in model.tables:
-                if not any(_mentions(text, w) for w in _table_words(table.name)):
-                    continue
+                by_wording = UNIQUE.search(text) and any(_mentions(text, w) for w in _table_words(table.name))
                 for column in table.columns:
                     if column.primary_key or column.name.lower() == "id":
                         continue
-                    if _mentions(text, column.name) or _mentions(text, column.name.replace("_", " ")):
+                    if f"{table.name}.{column.name}".lower() in named or (by_wording and (
+                            _mentions(text, column.name) or _mentions(text, column.name.replace("_", " ")))):
                         checked.append("unique")
                         columns.append(f"{table.name}.{column.name}")
                         if not column.unique:
@@ -235,7 +253,10 @@ def check(model: app_audit.AppModel, requirements: list) -> RequirementsResult:
         result.not_examined.append(
             "Requirements: none of them names a route and no handler names a requirement, so nothing "
             "could be checked against them.")
+    for note in link_notes or []:
+        result.not_examined.append(f"Links file: {note}.")
     result.not_examined.append(
         "Requirements are matched by wording, for four things only: sign-in, ownership, admin-only and "
-        "uniqueness. The rest of each requirement was not checked; see the Requirements table.")
+        "uniqueness. The rest of each requirement was not checked; see the Requirements table."
+        + (" Links confirmed by a person were used where given." if links else ""))
     return result

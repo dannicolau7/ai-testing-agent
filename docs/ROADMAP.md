@@ -37,7 +37,7 @@ audit tool that overstates what it checked is worse than no tool.
 | Link from a requirement to its tests | Works: `python cli.py trace` (not yet to the code) |
 | Proof that a test can fail | Works for tests that call the system through `requests`: `python cli.py validate` |
 | Database | Reads SQL and SQLAlchemy tables; checks keys only. Migrations not read |
-| Permissions (who may do what) | Detects that auth is needed; no model of roles |
+| Permissions (who may do what) | Detects a visible access check and a missing ownership check; no model of roles |
 | Frontend | Reads `fetch` and `axios` calls from source; no browser |
 | Re-checking on change | Missing |
 
@@ -92,11 +92,24 @@ with their visible access checks, frontend requests, spec operations, tables) an
 where the layers disagree, sorted into wrong now, likely to go wrong, unclear and not
 examined. See `app_audit.py` and `examples/audit-demo`.
 
-Still to do: everything below. The model stops at declarations. It does not follow a
-handler into the code it calls, so it cannot yet say which data a route reads or writes, or
-whether an ownership check runs. It has been run on a sample application only, not on a
-real codebase. Next: handler-to-table links, request and response shapes compared between
-frontend, spec and backend, and requirements linked to routes.
+Also built (`data_access.py`): for Python handlers the audit follows the handler, and the
+project functions it calls, to the SQL statements and SQLAlchemy calls it makes. Each route
+now knows which tables it reads and writes. From that it reports: a table or column the
+database does not define; a row fetched by id with no sign that the caller owns it; SQL
+built by inserting values into the text; a GET that changes data; tables no route touches.
+
+Tried on real code: the sample application, plus two of our own projects (a FastAPI + React
+app and a FastAPI + Next.js app). That run removed three kinds of false alarm: `_id` columns
+that are not references, SQL assembled from fixed pieces (now "unclear", not "likely"), and
+a long list of routes the frontend reaches through a helper (now one finding). One known
+false alarm remains: a route protected by global middleware is reported as showing no
+access check.
+
+Still to do: two small codebases are not enough to know the false-alarm rate. The ownership check looks for the owner column's name
+anywhere in the handler's code, which is evidence, not proof. Queries assembled across
+variables, query builders, Django, and JavaScript backends are not read. Next: request and
+response shapes compared between frontend, spec and backend, and requirements linked to
+routes.
 
 Go beyond route decorators: which handler reads and writes which data, which checks run
 before it, what it returns on each path. Store this as a model the later stages query, so a

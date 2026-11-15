@@ -36,6 +36,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
+import data_access
+
 SKIP_DIRS = {
     ".git", "node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", ".next",
     "out", "coverage", ".pytest_cache", ".mypy_cache", "site-packages", "vendor", "target",
@@ -60,6 +62,8 @@ class Route:
     line: int
     handler: str = ""
     auth_evidence: List[str] = field(default_factory=list)
+    # What the handler reads and writes. None when the handler's code was not followed.
+    data: Optional[data_access.HandlerData] = None
 
     @property
     def key(self) -> Tuple[str, str]:
@@ -94,6 +98,7 @@ class Table:
     file: str
     line: int
     columns: List[Column] = field(default_factory=list)
+    model_class: str = ""  # the SQLAlchemy class, when the table came from one
 
 
 @dataclass
@@ -433,16 +438,31 @@ def sqlalchemy_tables(source: str, filename: str) -> List[Table]:
                         column.foreign_key = _const(arg.args[0]) if arg.args else "?"
                 columns.append(column)
         if name:
-            tables.append(Table(name, filename, node.lineno, columns))
+            tables.append(Table(name, filename, node.lineno, columns, node.name))
     return tables
 
 
 # ── Model ─────────────────────────────────────────────────────────────────────
 
 
+def _attach_handler_data(model: AppModel, trees: List[Tuple[str, ast.AST]]) -> None:
+    """Follow each Python handler into the code it calls and record its data access."""
+    index = data_access.index_functions(trees)
+    by_place = {}
+    for file, tree in trees:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                by_place[(file, node.lineno, node.name)] = node
+    for route in model.routes:
+        node = by_place.get((route.file, route.line, route.handler))
+        if node is not None:
+            route.data = data_access.handler_data(node, route.file, index)
+
+
 def build_model(root_path: str) -> AppModel:
     root = Path(root_path).resolve()
     model = AppModel(root=str(root))
+    trees: List[Tuple[str, ast.AST]] = []
     for path in _files(root, (".py",), model):
         source, rel = _read(path), str(path.relative_to(root))
         if path.name.startswith("test_") or path.name.endswith("_test.py") or "tests" in path.parts:
@@ -450,6 +470,19 @@ def build_model(root_path: str) -> AppModel:
         model.files_read += 1
         model.routes += python_routes(source, rel)
         model.tables += sqlalchemy_tables(source, rel)
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            model.files_skipped.append(f"{rel} (could not be parsed as Python)")
+            continue
+        trees.append((rel, tree))
+        # Tables created from Python, as in db.execute("CREATE TABLE ...").
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and "CREATE TABLE" in node.value.upper():
+                for table in sql_tables(node.value, rel):
+                    table.line += node.lineno - 1
+                    model.tables.append(table)
+    _attach_handler_data(model, trees)
     for path in _files(root, (".js", ".jsx", ".ts", ".tsx", ".mjs", ".vue", ".svelte"), model):
         source, rel = _read(path), str(path.relative_to(root))
         if re.search(r"\.(test|spec)\.[jt]sx?$", path.name):
@@ -466,6 +499,15 @@ def build_model(root_path: str) -> AppModel:
             model.files_read += 1
             model.spec_files.append(str(path.relative_to(root)))
             model.spec_operations += operations
+    classes = {t.model_class: t.name for t in model.tables if t.model_class}
+    for route in model.routes:
+        if route.data is None:
+            continue
+        for access in route.data.accesses:
+            if not access.sql:
+                access.table = classes.get(access.table, "")
+        # A capitalised name passed to the ORM that is not a known model is not data access.
+        route.data.accesses = [a for a in route.data.accesses if a.table]
     return model
 
 
@@ -490,6 +532,108 @@ def _match(key: Tuple[str, str], keys: Set[Tuple[str, str]]) -> bool:
     return any(m == method and (p == stripped or re.sub(r"^/(api/v\d+|api|v\d+)(?=/)", "", p) == path
                                 or re.sub(r"^/(api/v\d+|api|v\d+)(?=/)", "", p) == stripped)
                for m, p in keys)
+
+
+# Routes a frontend is not expected to call.
+OPERATIONAL = re.compile(r"^/$|^/(health|healthz|ready|readyz|live|livez|metrics|ping|status|docs|openapi\.json)$")
+# A column that says whose row this is.
+OWNER_COLUMN = re.compile(
+    r"^(user|owner|customer|account|tenant|org|organi[sz]ation|member|author|creator|created_by)(_id)?$",
+    re.IGNORECASE,
+)
+# Evidence that the caller is meant to reach every row.
+ADMIN_WORDS = re.compile(r"admin|staff|superuser|role|permission|scope", re.IGNORECASE)
+# Tables a read may reasonably write to.
+LOG_LIKE = re.compile(r"log|audit|event|metric|stat|view|visit|session|token|cache|history", re.IGNORECASE)
+
+
+def _audit_data_access(model: AppModel, add) -> None:
+    """Checks that need to know what a handler reads and writes."""
+    followed = [r for r in model.routes if r.data is not None]
+    tables = {t.name.lower(): t for t in model.tables}
+    touched: Set[str] = set()
+    reported: Set[Tuple[str, str, int]] = set()
+
+    def once(group, title, detail, access) -> None:
+        key = (title, access.file, access.line)
+        if key not in reported:
+            reported.add(key)
+            add(group, title, detail, f"{access.file}:{access.line}")
+
+    for route in followed:
+        name = f"{route.method} {route.path}"
+        for access in route.data.accesses:
+            table = tables.get(access.table.lower())
+            touched.add(access.table.lower())
+            if access.built_from_values and access.from_parameter:
+                once("likely", f"SQL on `{access.table}` is built by inserting a function argument into the text",
+                     f"Reached from {name}. Inserted: {', '.join(access.inserted)}. If the argument comes "
+                     "from the request, a caller can change the query. Pass values as parameters.", access)
+            elif access.built_from_values:
+                once("unclear", f"SQL on `{access.table}` is assembled from pieces",
+                     f"Reached from {name}. Inserted: {', '.join(access.inserted) or 'an expression'}. "
+                     "This is safe only if every piece is fixed text; a person should confirm.", access)
+            if not model.tables or not access.sql:
+                continue
+            if table is None:
+                once("wrong_now", f"The code uses table `{access.table}`, which the database does not define",
+                     f"Reached from {name}. The statement will fail when it runs, unless the table is "
+                     "created somewhere this audit did not read.", access)
+                continue
+            known = {c.name.lower() for c in table.columns}
+            if known and access.single_table:
+                for column in access.columns + access.filters:
+                    if column.lower() not in known:
+                        once("wrong_now",
+                             f"The code uses column `{access.table}.{column}`, which the table does not have",
+                             f"Reached from {name}. The statement will fail when it runs.", access)
+
+        # A read that also writes.
+        if route.method == "GET":
+            for access in route.data.accesses:
+                if access.kind == "write" and not LOG_LIKE.search(access.table):
+                    add("likely", f"{name} changes `{access.table}`",
+                        "A GET request is expected to read only. Browsers, crawlers and caches repeat GET "
+                        "requests freely.", f"{access.file}:{access.line}")
+                    break
+
+        # A row fetched by its id, with no sign that the caller owns it.
+        if "{}" not in normalize_path(route.path):
+            continue
+        if route.method in MUTATING and not route.auth_evidence:
+            continue  # already reported: no access check at all
+        if any(ADMIN_WORDS.search(e) for e in route.auth_evidence):
+            continue
+        for access in route.data.accesses:
+            table = tables.get(access.table.lower())
+            if table is None or (access.kind == "write" and not access.filters):
+                continue
+            owners = [c.name for c in table.columns if OWNER_COLUMN.match(c.name) and not c.primary_key]
+            mentioned = {n.lower() for n in route.data.names}
+            if owners and not any(o.lower() in mentioned for o in owners):
+                verb = "reads" if access.kind == "read" else "changes"
+                add("likely", f"{name} {verb} `{table.name}` without checking who owns the row",
+                    f"`{table.name}` has an owner column (`{owners[0]}`), and nothing this handler runs "
+                    "mentions it. A signed-in user may be able to reach another user's row by changing "
+                    "the id.", f"{access.file}:{access.line}")
+                break
+
+    if followed and touched and model.tables:
+        for table in model.tables:
+            if table.name.lower() not in touched:
+                add("unclear", f"No route reads or writes table `{table.name}`",
+                    "It may be used by code this audit did not follow, or it may be unused.", _where(table))
+
+
+def _names_a_table(column: str, tables: List[Table]) -> bool:
+    """True when an _id column is named after a table: address_id or shipping_address_id → addresses."""
+    stem = column.lower()[:-3]
+    for table in tables:
+        name = table.name.lower()
+        singular = {name, name[:-1] if name.endswith("s") else name, name[:-2] if name.endswith("es") else name}
+        if any(stem == s or stem.endswith("_" + s) for s in singular):
+            return True
+    return False
 
 
 def audit(model: AppModel) -> AuditReport:
@@ -545,10 +689,21 @@ def audit(model: AppModel) -> AuditReport:
 
     # Backend routes the frontend never uses.
     if model.routes and model.calls:
-        for route in model.routes:
-            if not _match(route.key, call_keys):
+        uncalled = [r for r in model.routes if not _match(r.key, call_keys)
+                    and not OPERATIONAL.match(normalize_path(r.path))]
+        if len(uncalled) > 5:
+            # This many usually means the frontend calls the API in a way this audit cannot read.
+            listed = ", ".join(f"{r.method} {r.path}" for r in uncalled[:12])
+            more = f" and {len(uncalled) - 12} more" if len(uncalled) > 12 else ""
+            add("unclear", f"{len(uncalled)} backend routes are not called by any frontend request this audit could read",
+                f"{listed}{more}. With this many, the frontend probably calls them through a helper, or "
+                "they serve another client.", _where(uncalled[0]))
+        else:
+            for route in uncalled:
                 add("unclear", f"Nothing in the frontend calls {route.method} {route.path}",
                     "It may serve another client, or it may be dead code.", _where(route))
+
+    _audit_data_access(model, add)
 
     # Database structure.
     for table in model.tables:
@@ -556,7 +711,8 @@ def audit(model: AppModel) -> AuditReport:
             add("likely", f"Table {table.name} has no primary key",
                 "Rows cannot be told apart reliably, and duplicates are not prevented.", _where(table))
         for column in table.columns:
-            if column.name.lower().endswith("_id") and not column.foreign_key and not column.primary_key:
+            if (column.name.lower().endswith("_id") and not column.foreign_key and not column.primary_key
+                    and _names_a_table(column.name, model.tables)):
                 add("likely", f"{table.name}.{column.name} looks like a reference but has no foreign key",
                     "The database will accept a value that points at nothing.", _where(table))
 
@@ -566,7 +722,9 @@ def audit(model: AppModel) -> AuditReport:
         if not found:
             report.not_examined.append(f"No {label} were found, so checks that need them were skipped.")
     report.not_examined += [
-        "What each handler does: this audit reads routes and declarations, not the logic inside them.",
+        "Handler logic beyond data access: for Python handlers this audit follows the code to the "
+        "SQL and ORM calls it makes; it does not check conditions, validation or what is returned.",
+        "Queries assembled across several variables, and data access in JavaScript backends.",
         "The running application: nothing was started, called or queried.",
         "Requirements: use `trace` to compare requirements with tests.",
         "Access checks applied globally (middleware, gateways) or in languages other than Python and JavaScript/TypeScript.",
@@ -598,6 +756,7 @@ def render_markdown(report: AuditReport) -> str:
         f"| Frontend API calls | {len([c for c in m.calls if c.path])} |",
         f"| Operations in the API spec | {len(m.spec_operations)} |",
         f"| Database tables | {len(m.tables)} |",
+        f"| Routes whose data access was found | {len([r for r in m.routes if r.data and r.data.accesses])} of {len(m.routes)} |",
         "",
         "This compares the layers with each other. It does not run the application or know the",
         "requirements, so a clean result means the layers agree, not that the product is right.",

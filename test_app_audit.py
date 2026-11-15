@@ -24,7 +24,7 @@ def test_the_demo_application_is_read_layer_by_layer():
     ]
     assert len(model.spec_operations) == 5 and model.spec_files == ["openapi.yaml"]
     assert {t.name: len(t.columns) for t in model.tables} == {
-        "customers": 2, "orders": 4, "order_events": 2,
+        "customers": 2, "addresses": 3, "orders": 4, "order_events": 2,
     }
     by_route = {r.key: r for r in model.routes}
     # A database dependency is not an access check; a current-user dependency is evidence of one.
@@ -43,21 +43,28 @@ def test_planted_problems_are_found_and_sorted():
         "The frontend calls POST /api/orders/{id}/refund, which no backend route defines",
         "The API spec documents GET /api/orders/{orderId}/invoice, which the backend does not implement",
         "The spec says DELETE /api/orders/{order_id} needs authentication, but the code shows no check",
+        "The code uses column `orders.status`, which the table does not have",
+        "The code uses table `search_jobs`, which the database does not define",
     ]
     assert _titles(report, "likely") == [
         "POST /api/admin/reindex is not in the API spec",
+        "SQL on `orders` is built by inserting a function argument into the text",
+        "GET /api/orders/{order_id} reads `orders` without checking who owns the row",
         "orders.shipping_address_id looks like a reference but has no foreign key",
         "Table order_events has no primary key",
     ]
     assert _titles(report, "unclear") == [
         "A frontend request whose address is built at run time",
         "Nothing in the frontend calls POST /api/admin/reindex",
+        "No route reads or writes table `customers`",
+        "No route reads or writes table `addresses`",
     ]
     assert not report.ok
     markdown = app_audit.render_markdown(report)
-    assert "## Wrong now (4)" in markdown and "## Not examined" in markdown
+    assert "## Wrong now (6)" in markdown and "## Not examined" in markdown
     assert "The backend defines DELETE, GET for that path." in markdown
     assert "not that the product is right" in markdown
+    assert "| Routes whose data access was found | 5 of 5 |" in markdown
 
 
 def test_paths_from_every_framework_compare_equal():
@@ -138,8 +145,34 @@ def test_command_line(tmp_path):
         [sys.executable, "cli.py", "audit", str(DEMO), "-o", str(out)], capture_output=True, text=True
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "## Wrong now (4)" in out.read_text()
+    assert "## Wrong now (6)" in out.read_text()
     missing = subprocess.run(
         [sys.executable, "cli.py", "audit", str(tmp_path / "nope")], capture_output=True, text=True
     )
     assert missing.returncode == 2
+
+
+def test_an_id_column_is_a_reference_only_when_a_table_of_that_name_exists(tmp_path):
+    (tmp_path / "db.py").write_text(
+        "SCHEMA = \"\"\"\n"
+        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY);\n"
+        "CREATE TABLE IF NOT EXISTS jobs (\n"
+        "    id INTEGER PRIMARY KEY,\n"
+        "    session_id TEXT,\n"
+        "    rpc_id TEXT,\n"
+        "    created_by_user_id INTEGER\n"
+        ");\n"
+        "\"\"\"\n"
+    )
+    model = app_audit.build_model(str(tmp_path))
+    assert [(t.name, t.line) for t in model.tables] == [("users", 2), ("jobs", 3)], "tables created from Python"
+    titles = _titles(app_audit.audit(model), "likely")
+    assert titles == ["jobs.created_by_user_id looks like a reference but has no foreign key"]
+
+
+def test_many_uncalled_routes_become_one_finding_and_operational_routes_none(tmp_path):
+    routes = "".join(f"@app.get('/r{i}')\ndef r{i}(): ...\n" for i in range(7))
+    (tmp_path / "app.py").write_text(routes + "@app.get('/health')\ndef health(): ...\n")
+    (tmp_path / "ui.js").write_text("fetch('/r0');\n")
+    unclear = _titles(app_audit.audit(app_audit.build_model(str(tmp_path))), "unclear")
+    assert unclear == ["6 backend routes are not called by any frontend request this audit could read"]

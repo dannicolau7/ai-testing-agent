@@ -229,6 +229,43 @@ These tests send real requests. One that would change data is skipped unless you
 `FINDINGS_ALLOW_WRITES=1`, because if the fault is real the change happens. Use a test
 environment only.
 
+### The agent: every stage in one run
+
+```bash
+python cli.py agent path/to/app -r requirements.md --url http://localhost:8000 --out-dir agent-run
+```
+
+The agent does the stages in order and uses what each one learned. It reads the source, then
+takes every finding a request can settle, writes the test, runs it against your test
+environment, and sorts the finding by what happened:
+
+- **confirmed:** the server answered, and answered wrongly. The fault is real.
+- **cleared:** the server behaved as it should. The audit was wrong, or the fault is fixed.
+  The finding is removed from the lists.
+- **not run:** the test was skipped or could not complete. The finding stays as it was.
+
+Then it opens the app in a browser, carries out `--journeys` if given, and writes one report
+with a plain list of what it did, what it could not do, and what needs a person.
+
+If a model is configured (a local one is free; see below) it also proposes which route each
+requirement is about. Those proposals never change the verdict. The report shows separately
+what the audit would find if they were right, and writes `requirement-links.yaml` for you
+to confirm.
+
+Rules it keeps:
+
+- A model proposes; a request or a person decides.
+- A step that was not run is listed as not run, with the reason. Never as passed.
+- No answer from the server is not evidence: a fault is confirmed only when the server answered.
+- It sends requests only to this machine, or to one you name with `--authorization` (who
+  gave written permission, where it is filed). That line goes in the report.
+- It changes data only with `--allow-writes`.
+- Sign-in tokens come from `FINDINGS_USER_TOKEN` and `FINDINGS_OTHER_ID`. Their values are
+  never written down.
+
+`--out-dir` writes `report.md`, `report.html`, `run.json` (every step and result), the
+generated tests and the proposed links. See [docs/agent.md](docs/agent.md).
+
 ### On every pull request
 
 ```bash

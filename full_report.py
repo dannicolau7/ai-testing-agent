@@ -177,7 +177,7 @@ def build(app_path: str, audit_report: app_audit.AuditReport, browser=None, trac
     return report
 
 
-def render_markdown(report: FullReport) -> str:
+def render_markdown(report: FullReport, extra: Optional[List[str]] = None) -> str:
     wrong, likely, unclear = (len(report.of(g)) for g in ("wrong_now", "likely", "unclear"))
     not_run = [p.name for p in report.parts if not p.ran]
     if wrong:
@@ -223,6 +223,8 @@ def render_markdown(report: FullReport) -> str:
         lines.append("")
     if report.permissions_table:
         lines += ["## Permissions", ""] + report.permissions_table
+    if extra:
+        lines += extra
     lines += ["## Not examined", ""]
     lines += [f"- {p.name}: not run. {p.summary}" for p in report.parts if not p.ran]
     lines += [f"- {n}" for n in report.not_examined]

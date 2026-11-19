@@ -1066,6 +1066,85 @@ def cmd_full_report(args):
     sys.exit(0 if report.ok else 1)
 
 
+def cmd_agent(args):
+    """Run every stage the inputs allow, test the audit's own suspicions, and say what was not done."""
+    import agent
+    import model_backend
+
+    if not Path(args.path).is_dir():
+        print(f"❌ Not a directory: {args.path}")
+        sys.exit(2)
+    cfg = agent.Config(path=args.path, url=args.url or "", authorization=args.authorization or "",
+                       allow_writes=args.allow_writes, browse=not args.no_browser, validate=args.validate)
+    if args.requirements:
+        import traceability
+
+        try:
+            cfg.requirements = traceability.extract_requirements(Path(args.requirements).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read requirements file: {exc}")
+            sys.exit(2)
+        if not cfg.requirements:
+            print("❌ No requirement ids found. A requirement line starts with an id such as REQ-12 or US-7.")
+            sys.exit(2)
+    if args.links:
+        import requirement_links
+
+        if cfg.requirements is None:
+            print("❌ --links needs --requirements.")
+            sys.exit(2)
+        try:
+            loaded, cfg.link_notes = requirement_links.load(Path(args.links).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read links file: {exc}")
+            sys.exit(2)
+        cfg.links = requirement_links.as_overrides(loaded)
+        if len(loaded) - len(cfg.links):
+            cfg.link_notes.append(f"{len(loaded) - len(cfg.links)} proposed link(s) are not confirmed and were not used")
+    if args.permissions:
+        import permissions
+
+        try:
+            cfg.policy = permissions.load(Path(args.permissions).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read permissions file: {exc}")
+            sys.exit(2)
+    if args.journeys:
+        import journeys
+
+        try:
+            cfg.journeys, cfg.journey_problems = journeys.load(Path(args.journeys).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read journeys file: {exc}")
+            sys.exit(2)
+    for item in args.header or []:
+        name, sep, value = item.partition(":")
+        if not sep or not name.strip():
+            print(f"❌ --header must look like 'Name: value', got: {item[:40]}")
+            sys.exit(2)
+        cfg.headers[name.strip()] = value.strip()
+    if args.tests:
+        cfg.tests = args.tests
+    if not args.no_model:
+        cfg.backend = model_backend.resolve(args.api_key)
+    if cfg.backend is not None and cfg.requirements is not None:
+        print(f"Asking {cfg.backend.describe()} which route each requirement is about. It is sent requirement "
+              "text with route and handler names; no source code.", flush=True)
+    try:
+        result = agent.run(cfg)
+    except agent.Refused as exc:
+        print(f"❌ {exc}")
+        sys.exit(2)
+    for step in result.steps:
+        print(f"  [{step.status}] {step.name}: {step.detail}")
+    if args.out_dir:
+        written = agent.write_outputs(result, Path(args.out_dir))
+        print(f"Written to {args.out_dir}/: {', '.join(written)}")
+    else:
+        print(agent.render_markdown(result))
+    sys.exit(0 if result.ok else 1)
+
+
 def cmd_browse(args):
     """Open the running application in a browser and report what its pages do."""
     import app_audit
@@ -1703,6 +1782,31 @@ Examples:
                                help='A header sent with every request, e.g. to sign in; may be repeated')
     browse_parser.add_argument('--output', '-o', help='Write the Markdown report to this file')
 
+    # The agent: every stage in order, testing the audit's own suspicions
+    agent_parser = subparsers.add_parser(
+        'agent',
+        help='Audit an application end to end: read it, test the findings on a running system, report what was not done'
+    )
+    agent_parser.add_argument('path', help='Root directory of the application source')
+    agent_parser.add_argument('--requirements', '-r', help='Requirements file (ids such as REQ-12)')
+    agent_parser.add_argument('--links', help='Confirmed links between requirements and routes (from `link`)')
+    agent_parser.add_argument('--permissions', '-p', help='Permissions table (YAML)')
+    agent_parser.add_argument('--url', help='Where a TEST environment runs. Without it nothing is sent anywhere')
+    agent_parser.add_argument('--authorization', help='Required for any machine but this one: who gave written '
+                              'permission and where it is filed. Recorded in the report')
+    agent_parser.add_argument('--allow-writes', action='store_true',
+                              help='Let tests send POST, PUT, PATCH and DELETE. A real fault then takes effect')
+    agent_parser.add_argument('--no-browser', action='store_true', help='Do not open the application in a browser')
+    agent_parser.add_argument('--no-model', action='store_true', help='Do not use a model even if one is configured')
+    agent_parser.add_argument('--journeys', help='Journeys file (YAML) to carry out in the page')
+    agent_parser.add_argument('--header', action='append', metavar="'Name: value'",
+                              help='A header sent by the browser, e.g. to sign in; may be repeated')
+    agent_parser.add_argument('--tests', nargs='+', help='Existing tests, to line up with the requirements')
+    agent_parser.add_argument('--validate', action='store_true', help='Also check that each existing test can fail')
+    agent_parser.add_argument('--api-key', help='Anthropic API key (or ANTHROPIC_API_KEY); a local model needs none')
+    agent_parser.add_argument('--out-dir', help='Write report.md, report.html, run.json, the generated tests and '
+                              'the proposed links here')
+
     # Journeys: a requirement carried out in the page, then checked in the backend
     journey_parser = subparsers.add_parser(
         'journey',
@@ -1794,6 +1898,8 @@ Examples:
         cmd_analyze_code(args)
     elif args.command == 'audit':
         cmd_audit(args)
+    elif args.command == 'agent':
+        cmd_agent(args)
     elif args.command == 'link':
         cmd_link(args)
     elif args.command == 'journey':

@@ -39,7 +39,8 @@ audit tool that overstates what it checked is worse than no tool.
 | Database | Reads SQL and SQLAlchemy tables; checks keys only. Migrations not read |
 | Permissions (who may do what) | A table of roles against routes, compared with the code; one generated test per cell |
 | Frontend | Reads `fetch` and `axios` calls from source; `browse` opens the running app in a browser |
-| Re-checking on change | Missing |
+| Re-checking on change | First version: `audit --baseline` (findings only) |
+| One run that does every stage and checks its own findings | First version: `python cli.py agent` |
 
 ## Build order
 
@@ -199,6 +200,20 @@ been run in a real repository.
 
 Run the audit on each pull request and report only what changed: new gaps, tests that no
 longer validate, requirements that lost coverage.
+
+## The agent (first version built)
+
+`python cli.py agent` (`agent.py`, `docs/agent.md`) runs the stages in order and uses what
+each learned: it takes the findings a request can settle, writes and runs the tests against a
+test environment, and sorts each finding as confirmed, cleared or not run. A model, if
+configured, proposes requirement links, which never reach the verdict. Every step is
+recorded, and what was not done is listed. It sends requests only to this machine, or to one
+named with written authorization, and changes data only with `--allow-writes`.
+
+Still to do: it has run only against a small application with planted faults. It settles
+three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
+`--baseline`. It does not write journeys from requirements, which is the next place a model
+could help, always for a person to confirm.
 
 ## From findings to proof (built)
 

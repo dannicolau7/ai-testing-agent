@@ -71,7 +71,11 @@ def _send(method, path, token=None, path_id=None):
         pytest.skip("sends " + method + ", which may change data: set FINDINGS_ALLOW_WRITES=1 to run it")
     url = BASE + re.sub(PARAMETER, path_id or PATH_ID, path)
     headers = {"Authorization": "Bearer " + token} if token else {}
-    return requests.request(method, url, headers=headers, timeout=20)
+    try:
+        return requests.request(method, url, headers=headers, timeout=20)
+    except requests.exceptions.RequestException as exc:
+        # No answer is not evidence either way: a test fails only when the server answered.
+        pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)
 
 
 def _user_token():
@@ -84,6 +88,11 @@ def _user_token():
 
 def _slug(text: str) -> str:
     return re.sub(r"_+", "_", re.sub(r"\W+", "_", text.lower())).strip("_")
+
+
+def name_of_test(check: str, method: str, path: str) -> str:
+    """The name of the test written for a finding. The same finding always gets the same name."""
+    return f"test_{_slug(check)}_{_slug(method + ' ' + path)}"
 
 
 def generate(findings: list) -> Tuple[str, int, List[str]]:
@@ -102,7 +111,7 @@ def generate(findings: list) -> Tuple[str, int, List[str]]:
         seen.add(key)
         requirements = list(dict.fromkeys(
             f.requirement for f in findings if (f.check, f.method, f.path) == key and f.requirement))
-        name = f"test_{_slug(check)}_{_slug(method + ' ' + path)}"
+        name = name_of_test(check, method, path)
         lines = []
         if requirements:
             lines.append(f"# Requirement: {', '.join(requirements)}")

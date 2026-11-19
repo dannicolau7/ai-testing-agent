@@ -8,8 +8,12 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which has no Python 3.9 build. This project still
+    # supports 3.9, so it is tested on the last image that has it.
+    runs-on: ubuntu-24.04
     strategy:
+      # One version failing must not hide the results of the others.
+      fail-fast: false
       matrix:
         python-version: ["3.9", "3.10", "3.11", "3.12"]
 
@@ -67,6 +71,7 @@ jobs:
             test_real_code_patterns.py \
             test_js_data_access.py \
             test_finding_tests.py \
+            test_agent.py \
             -v --tb=short
 
   browser:

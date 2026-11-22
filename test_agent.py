@@ -13,7 +13,9 @@ import pytest
 import agent
 import app_audit
 import model_backend
+import permissions
 import test_finding_tests as live
+import test_permissions as roles_app
 import traceability
 
 HERE = Path(__file__).resolve().parent
@@ -208,7 +210,8 @@ def test_the_run_record_is_stable_and_lists_every_step(source, server, tmp_path)
     a, b = json.loads(agent.to_json(first)), json.loads(agent.to_json(second))
     assert a == b
     assert [s["name"] for s in a["steps"]] == ["Read the source", "Propose links", "Test the findings",
-                                               "Browse the application", "Carry out journeys"]
+                                               "Try the permissions table", "Browse the application",
+                                               "Carry out journeys"]
     assert a["ok"] is False and set(a) >= {"where", "confirmations", "cleared", "needs_person", "steps"}
     written = agent.write_outputs(first, tmp_path / "out")
     assert written == ["report.md", "report.html", "run.json", "tests-from-findings.py"]
@@ -241,3 +244,121 @@ def test_command_line(tmp_path):
     assert refused.returncode == 2 and "--authorization" in refused.stdout
     assert subprocess.run([sys.executable, "cli.py", "agent", str(tmp_path / "nope")], capture_output=True,
                           text=True, cwd=str(HERE)).returncode == 2
+
+
+# ── The permissions table, tried on the running system ───────────────────────
+
+ROLE_SOURCE = (
+    "@app.get('/about')\n"
+    "def about():\n    return {}\n"
+    "@app.post('/admin/export')\n"
+    "def export(user=Depends(current_user)):\n    return {}\n"       # no role check visible; refused elsewhere
+    "@app.post('/admin/purge')\n"
+    "def purge(user=Depends(current_user)):\n    return {}\n"        # no role check, and really open
+    "@app.get('/notes/{note_id}')\n"
+    "def note(note_id, user=Depends(current_user)):\n    return {}\n"
+)
+ROLE_TABLE = (
+    "roles: [user, admin]\nrules:\n"
+    "  - {route: GET /about, allow: [anonymous, user, admin]}\n"
+    "  - {route: POST /admin/export, allow: [admin]}\n"
+    "  - {route: POST /admin/purge, allow: [admin]}\n"
+    "  - {route: 'GET /notes/{id}', allow: [user, admin]}\n"
+)
+
+
+@pytest.fixture
+def roles(tmp_path, monkeypatch):
+    folder = tmp_path / "roles-src"
+    folder.mkdir()
+    (folder / "app.py").write_text(ROLE_SOURCE)
+    httpd = HTTPServer(("127.0.0.1", 0), roles_app._App)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    monkeypatch.setenv("ROLE_USER_TOKEN", "u-token")
+    monkeypatch.setenv("ROLE_ADMIN_TOKEN", "a-token")
+    cfg = agent.Config(path=str(folder), policy=permissions.load(ROLE_TABLE), browse=False,
+                       url=f"http://127.0.0.1:{httpd.server_port}")
+    yield cfg
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def _cells(run):
+    return {(c.role, c.method, c.path): c.verdict for c in run.cells}
+
+
+def test_every_cell_of_the_permissions_table_is_tried(roles):
+    before = [f.title for f in agent.run(dataclasses_replace(roles, url="")).audit.findings]
+    assert "POST /admin/export must refuse user, but no role check is visible" in before
+    assert "POST /admin/purge must refuse user, but no role check is visible" in before
+
+    roles.allow_writes = True
+    run = agent.run(roles)
+    cells = _cells(run)
+    assert len(cells) == 12
+    assert cells[("user", "POST", "/admin/purge")] == "broken"
+    assert [v for k, v in cells.items() if k != ("user", "POST", "/admin/purge")] == ["holds"] * 11
+    wrong = [i for i in run.report.items if i.group == "wrong_now"]
+    assert [i.title for i in wrong] == ["user can call POST /admin/purge, which the permissions table refuses them"]
+    assert "user should be refused, got 200" in wrong[0].detail and not run.ok
+
+    # The export route showed no role check in the code, but every refusal held: cleared.
+    # The purge route's suspicion is replaced by the broken cell, not listed twice.
+    titles = [i.title for i in run.report.items]
+    assert "POST /admin/export must refuse user, but no role check is visible" in [f.title for f in run.cleared]
+    assert not any("must refuse user, but no role check" in t for t in titles)
+    text = agent.render_markdown(run)
+    assert "| user | POST /admin/purge | refuse | **Broken** |" in text
+    assert "| anonymous | GET /about | allow | Holds |" in text
+    assert "Cleared by these results" in text and "own rows only" in text
+    assert run.where["token_variables_set"] == ["ROLE_ADMIN_TOKEN", "ROLE_USER_TOKEN"]
+    assert "u-token" not in text and "a-token" not in agent.to_json(run)
+
+
+def test_cells_that_change_data_wait_for_permission(roles):
+    run = agent.run(roles)
+    cells = _cells(run)
+    assert all(v == "not run" for (_, method, _), v in cells.items() if method == "POST")
+    assert all(v == "holds" for (_, method, _), v in cells.items() if method == "GET")
+    # Nothing was shown either way about the POST routes, so both suspicions stay.
+    titles = [i.title for i in run.report.items]
+    assert "POST /admin/export must refuse user, but no role check is visible" in titles
+    assert "POST /admin/purge must refuse user, but no role check is visible" in titles
+    assert run.ok and not run.cleared
+    assert any("6 cell(s) of the permissions table not tried" in line and "PERMISSIONS_ALLOW_WRITES" in line
+               for line in run.needs_person)
+
+
+def test_a_role_with_no_token_leaves_its_route_uncleared(roles, monkeypatch):
+    monkeypatch.delenv("ROLE_USER_TOKEN")
+    roles.allow_writes = True
+    run = agent.run(roles)
+    assert _cells(run)[("user", "POST", "/admin/purge")] == "not run"
+    titles = [i.title for i in run.report.items]
+    # The user refusals were never tried, so neither route is cleared and no hole is claimed.
+    assert "POST /admin/export must refuse user, but no role check is visible" in titles
+    assert "POST /admin/purge must refuse user, but no role check is visible" in titles
+    assert not [i for i in run.report.items if i.group == "wrong_now"]
+    assert any("no token for role user" in line for line in run.needs_person)
+
+
+def test_the_table_is_not_tried_without_what_it_needs(roles, tmp_path):
+    for change, reason in ((dict(url=""), "no address of a test environment"),
+                           (dict(url="http://127.0.0.1:9"), "nothing answered"),
+                           (dict(policy=None), "no permissions table was given"),
+                           (dict(policy=permissions.load("roles: [user]\nrules:\n  - {route: nope}\n")),
+                            "has mistakes")):
+        run = agent.run(dataclasses_replace(roles, **change))
+        step = next(s for s in run.steps if s.name == "Try the permissions table")
+        assert step.status == "not run" and reason in step.detail, change
+        assert run.cells == []
+    roles.allow_writes = True
+    written = agent.write_outputs(agent.run(roles), tmp_path / "out")
+    assert "tests-from-permissions.py" in written
+    compile((tmp_path / "out" / "tests-from-permissions.py").read_text(), "generated", "exec")
+
+
+def dataclasses_replace(cfg, **changes):
+    import dataclasses
+
+    return dataclasses.replace(cfg, **changes)

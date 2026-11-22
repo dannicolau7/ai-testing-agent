@@ -179,6 +179,13 @@ def test_generated_tests_run_and_catch_a_real_hole(tmp_path):
     try:
         env = dict(os.environ, PERMISSIONS_BASE_URL=f"http://127.0.0.1:{httpd.server_port}",
                    ROLE_USER_TOKEN="u-token", ROLE_ADMIN_TOKEN="a-token")
+        # Nothing that changes data is sent until that is allowed: the six POST tests wait.
+        held = subprocess.run(
+            [sys.executable, "-m", "pytest", str(out), "-q", "-p", "no:cacheprovider", "--tb=no", "-o", "addopts=", "-rs"],
+            capture_output=True, text=True, env=env, cwd=str(tmp_path))
+        assert "6 skipped" in held.stdout and "failed" not in held.stdout, held.stdout
+        assert "set PERMISSIONS_ALLOW_WRITES=1" in held.stdout
+        env["PERMISSIONS_ALLOW_WRITES"] = "1"
         report = tmp_path / "report.json"
         run = subprocess.run(
             [sys.executable, "-m", "pytest", str(out), "-q", "-p", "no:cacheprovider", "--tb=no",

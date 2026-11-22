@@ -1288,6 +1288,7 @@ def cmd_permissions(args):
     print(f"{cells} permission tests ({refused} of them refusals) → {output}")
     print("Run them against a TEST environment only: they send real requests.")
     print("  PERMISSIONS_BASE_URL=http://localhost:8000 ROLE_<NAME>_TOKEN=... pytest " + output)
+    print("Tests that would change data are skipped unless PERMISSIONS_ALLOW_WRITES=1.")
 
 
 def cmd_trace(args):

@@ -51,6 +51,7 @@ from urllib.parse import urlsplit
 
 import app_audit
 import finding_tests
+import live_checks
 import full_report
 
 CONFIRMED, CLEARED, NOT_RUN = "confirmed", "cleared", "not run"
@@ -79,6 +80,7 @@ class Config:
     validate: bool = False
     backend: Optional[object] = None        # a model_backend backend, or None to run without a model
     test_timeout: int = 600
+    spec: str = ""                          # a file or address of the API spec, for request bodies
 
 
 @dataclass
@@ -119,6 +121,7 @@ class AgentRun:
     untestable: List[str] = field(default_factory=list)
     cells: List[Cell] = field(default_factory=list)
     permission_tests_text: str = ""
+    bodies: Dict[str, dict] = field(default_factory=dict)
     provisional: List[app_audit.Finding] = field(default_factory=list)
     proposed_links: list = field(default_factory=list)
     proposed_by: str = ""
@@ -201,13 +204,13 @@ def _assertion(message: str) -> Optional[str]:
 
 
 def confirm(findings: List[app_audit.Finding], url: str, allow_writes: bool, workdir: Path,
-            timeout: int = 600) -> Tuple[str, List[Confirmation], List[str]]:
+            timeout: int = 600, bodies=None) -> Tuple[str, List[Confirmation], List[str]]:
     """Write the tests for the findings a request can settle, run them, and sort the findings.
 
     Returns the test file, one Confirmation per testable finding, and the titles of findings
     no request can settle.
     """
-    text, _, untestable = finding_tests.generate(findings)
+    text, _, untestable = finding_tests.generate(findings, bodies)
     test_file = workdir / "test_findings.py"
     test_file.write_text(text, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("FINDINGS_")}
@@ -261,11 +264,12 @@ def _run_pytest(test_file: Path, env: dict, timeout: int) -> Tuple[Dict[str, Tup
         return {}, "the test results could not be read"
 
 
-def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout: int = 600) -> Tuple[str, List[Cell]]:
+def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout: int = 600,
+                    bodies=None) -> Tuple[str, List[Cell]]:
     """Try every cell of the permissions table on the running system."""
     import permissions
 
-    text = permissions.tests(policy)
+    text = permissions.tests(policy, bodies)
     test_file = workdir / "test_permissions_table.py"
     test_file.write_text(text, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("PERMISSIONS_")}
@@ -280,6 +284,9 @@ def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout
         outcome, message = outcomes.get(name, ("missing", why_missing))
         if outcome == "passed":
             verdict, evidence = HOLDS, "refused" if not allowed else "let through"
+            if (not allowed and role != permissions.ANONYMOUS and os.environ.get("OTHER_PATH_IDS")
+                    and re.search(live_checks.PARAMETER, path)):
+                evidence = "refused, for its own row and for another user's"
         elif outcome == "failed" and _assertion(message) is not None:
             verdict, evidence = BROKEN, _assertion(message) or ""
         elif outcome == "failed":
@@ -317,7 +324,9 @@ def _settle_role_findings(findings: List[app_audit.Finding], cells: List[Cell], 
             kept.append(f)
             continue
         refusals = [c for c in cells if not c.allowed and _same_route(c.method, c.path, route.method, route.path)]
-        if not refusals or any(c.verdict == NOT_RUN for c in refusals):
+        one_id_only = bool(re.search(live_checks.PARAMETER, route.path)) and not os.environ.get("OTHER_PATH_IDS")
+        if not refusals or any(c.verdict == NOT_RUN for c in refusals) or one_id_only:
+            # With one id, a refusal may only mean "not your own row". That cannot clear a suspicion.
             kept.append(f)
         elif all(c.verdict == HOLDS for c in refusals):
             cleared.append(f)
@@ -375,13 +384,37 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
             steps.append(Step("Propose links", "failed", str(exc)[:200]))
     run_.provisional = provisional
 
+    # 2b. Find out what body each operation takes, so a request is not turned down as incomplete
+    # before it reaches the access check.
+    import request_bodies
+
+    problem = _reachable(cfg.url) if cfg.url else None
+    spec, origin = None, ""
+    if cfg.spec:
+        spec, origin = request_bodies.load(cfg.spec)
+    else:
+        for name in dict.fromkeys(r.file for r in model.spec_operations):
+            spec = request_bodies.parse((Path(cfg.path) / name).read_text(encoding="utf-8", errors="replace"))
+            if spec is not None:
+                origin = name
+                break
+        if spec is None and cfg.url and not problem:
+            spec, origin = request_bodies.discover(cfg.url)
+    if spec is not None:
+        run_.bodies = request_bodies.from_spec(spec)
+        steps.append(Step("Find request bodies", "done",
+                          f"{len(run_.bodies)} operation(s) take a body, from {origin}"))
+    else:
+        steps.append(Step("Find request bodies", "not run",
+                          origin or "no API spec in the source or at the test address; requests that need a "
+                                    "body are sent without one (--spec FILE or URL)"))
+
     # 3. Take each finding a request can settle and settle it.
     final = list(base.findings)
     answered = False
     if not cfg.url:
         steps.append(Step("Test the findings", "not run", "no address of a test environment was given (--url)"))
     else:
-        problem = _reachable(cfg.url)
         if problem:
             steps.append(Step("Test the findings", "failed", f"nothing answered at {cfg.url} ({problem})"))
         else:
@@ -389,7 +422,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
             holder = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="ata-agent-"))
             holder.mkdir(parents=True, exist_ok=True)
             run_.tests_text, run_.confirmations, run_.untestable = confirm(
-                base.findings, cfg.url, cfg.allow_writes, holder, cfg.test_timeout)
+                base.findings, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies)
             by = {(c.method, c.path, c.check): c for c in run_.confirmations}
             final = []
             for f in base.findings:
@@ -420,7 +453,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
         holder = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="ata-agent-"))
         holder.mkdir(parents=True, exist_ok=True)
         run_.permission_tests_text, run_.cells = try_permissions(
-            cfg.policy, cfg.url, cfg.allow_writes, holder, cfg.test_timeout)
+            cfg.policy, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies)
         final, role_cleared = _settle_role_findings(final, run_.cells, model.routes)
         run_.cleared += role_cleared
         tally = {v: len([c for c in run_.cells if c.verdict == v]) for v in (HOLDS, BROKEN, NOT_RUN)}
@@ -548,6 +581,10 @@ def _needs_person(run_: AgentRun, journey_results: list, cfg: Config) -> List[st
             idle[cell.evidence] = idle.get(cell.evidence, 0) + 1
     for reason, count in sorted(idle.items()):
         out.append(f"{count} cell(s) of the permissions table not tried: {reason}.")
+    if any(not c.allowed and c.verdict == HOLDS and re.search(live_checks.PARAMETER, c.path) and c.role != "anonymous"
+           for c in run_.cells) and not os.environ.get("OTHER_PATH_IDS"):
+        out.append("Refusals on routes with an id in the path were tried with one id only. Set OTHER_PATH_IDS to ids "
+                   "of rows that belong to a different user, so each is also tried against someone else's row.")
     if run_.untestable:
         out.append(f"{len(run_.untestable)} finding(s) no request can settle, so each needs a person or another "
                    "kind of test.")
@@ -629,6 +666,7 @@ def to_json(run_: AgentRun) -> str:
         "proposed_links": [{"id": p.id, "routes": p.routes} for p in run_.proposed_links],
         "proposed_by": run_.proposed_by,
         "permission_cells": [dataclasses.asdict(c) for c in run_.cells],
+        "operations_sent_a_body": sorted(run_.bodies),
         "needs_person": run_.needs_person,
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"

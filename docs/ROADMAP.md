@@ -214,10 +214,12 @@ named with written authorization, and changes data only with `--allow-writes`.
 With a permissions table it also tries every cell on the running system (holds, broken, not
 run), which settles the "no role check is visible" suspicions the source audit raises.
 
-It has been run against one real running application (`trials/live_flask.py`,
-`docs/real-code-trial.md`); the first run gave five false alarms out of five, now fixed.
+It has been run against two real running applications (`docs/real-code-trial.md`). The first
+run on each was wrong: five false alarms out of five on Flask, and on FastAPI a real hole
+reported as cleared. Both are fixed; request bodies now come from the API spec, and refusals
+are tried against another user's row.
 
-Still to do: one small real application is not many. Beyond the
+Still to do: two small real applications are not many. The FastAPI trial is not in CI. Beyond the
 permissions table it settles three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
 `--baseline`. It does not write journeys from requirements, which is the next place a model
 could help, always for a person to confirm.

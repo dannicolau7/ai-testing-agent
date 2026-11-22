@@ -32,6 +32,7 @@ from typing import Dict, List, Optional, Tuple
 
 import app_audit
 import live_checks
+import request_bodies
 
 ANONYMOUS = "anonymous"
 _ROLE_WORDS = re.compile(r"admin|staff|superuser|role|permission|scope|moderator|manager|owner_only", re.IGNORECASE)
@@ -282,14 +283,33 @@ def cell_tests(policy: Policy) -> Dict[str, Tuple[str, str, str, bool]]:
     return cells
 
 
-def tests(policy: Policy) -> str:
+def _order(cell) -> int:
+    """Run the cells that could destroy the test data last, so they do not spoil the others.
+
+    Found on a real application: "a user may delete their own account" ran early, the account
+    was gone, and every later cell for that role answered "not found"."""
+    role, method, path, allowed = cell
+    if not allowed or method in ("GET", "HEAD", "OPTIONS"):
+        return 0
+    if method != "DELETE":
+        return 1
+    return 2 if re.search(live_checks.PARAMETER, path) else 3
+
+
+def tests(policy: Policy, bodies=None) -> str:
     """A pytest file with one test per role and route, refusals included.
 
     The tests need a running test environment (PERMISSIONS_BASE_URL) and one token per
     signed-in role (ROLE_<NAME>_TOKEN). A test whose token is missing is skipped, never
     passed. Path parameters are filled with PERMISSIONS_PATH_ID (default 1).
     """
-    cells = cell_tests(policy)
+    cells = dict(sorted(cell_tests(policy).items(), key=lambda item: _order(item[1])))
+    own = {(rule.method, rule.path) for rule in policy.rules if rule.own}
+    used = {}
+    for _, method, path, _ in cells.values():
+        body = request_bodies.find(bodies, method, path)
+        if body is not None:
+            used[f"{method} {path}"] = body
     lines = [
         '"""Permission tests: one for every cell of the table of roles against actions.',
         "",
@@ -302,6 +322,11 @@ def tests(policy: Policy) -> str:
         "    PERMISSIONS_BASE_URL   where the application runs, e.g. http://localhost:8000",
         "    ROLE_<NAME>_TOKEN      a bearer token for each signed-in role",
         "    ROLE_<NAME>_COOKIE     or that role's session cookie, e.g. session=abc123",
+        "    PATH_IDS               an id for each path parameter by name, when one id does not fit all:",
+        '                           PATH_IDS="item_id=42,user_id=7"',
+        "    OTHER_PATH_IDS         the same, for rows that belong to a DIFFERENT user. A refusal is then",
+        "                           tried with both, since a route can refuse you your own row and still",
+        "                           let you at someone else's",
         "    SIGN_IN_PATH           a pattern matching the sign-in page's address, if a redirect to it",
         "                           is not recognised (default: login, sign-in, sso, authorize)",
         "    PERMISSIONS_PATH_ID    the id used for path parameters (default 1)",
@@ -316,10 +341,12 @@ def tests(policy: Policy) -> str:
         "",
         'BASE = os.environ.get("PERMISSIONS_BASE_URL", "").rstrip("/")',
         'PATH_ID = os.environ.get("PERMISSIONS_PATH_ID", "1")',
+        "# The smallest body each route accepts, from the API spec. Empty when no spec was given.",
+        "BODIES = " + repr(used),
         *live_checks.HELPERS.strip("\n").splitlines(),
         "",
         "",
-        "def _call(role, method, path):",
+        "def _call(role, method, path, others=False):",
         "    if not BASE:",
         '        pytest.skip("PERMISSIONS_BASE_URL is not set")',
         '    if method in ("POST", "PUT", "PATCH", "DELETE") and os.environ.get("PERMISSIONS_ALLOW_WRITES") != "1":',
@@ -330,9 +357,10 @@ def tests(policy: Policy) -> str:
         '        headers = _credentials(os.environ.get(name + "_TOKEN"), os.environ.get(name + "_COOKIE"))',
         "        if not headers:",
         '            pytest.skip("no token for role " + role)',
-        "    url = BASE + re.sub(PARAMETER, PATH_ID, path)",
+        "    url = BASE + _fill(path, PATH_ID, OTHER_IDS if others else None)",
         "    try:",
-        "        response = requests.request(method, url, headers=headers, timeout=20, allow_redirects=False)",
+        "        response = requests.request(method, url, headers=headers, timeout=20, allow_redirects=False,",
+        "                                    **_body(method, path))",
         "    except requests.exceptions.RequestException as exc:",
         "        # No answer is not evidence either way.",
         '        pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)',
@@ -343,13 +371,25 @@ def tests(policy: Policy) -> str:
     ]
     for name, (role, method, path, allowed) in cells.items():
         lines += ["", f"def {name}():"]
-        lines.append(f'    response = _call("{role}", "{method}", "{path}")')
+        if allowed and method == "DELETE" and re.search(live_checks.PARAMETER, path) and (method, path) not in own:
+            # Delete someone else's row when one was supplied, so the caller's own survives for
+            # the cells that still need it. Not where the rule is "own rows only": there the
+            # caller's own row is the only one they may delete.
+            lines.append(f'    response = _call("{role}", "{method}", "{path}", others=_others_row("{path}"))')
+        else:
+            lines.append(f'    response = _call("{role}", "{method}", "{path}")')
         if allowed:
             lines.append(f'    assert _answer(response) != "refused", "{role} should be allowed: " + _said(response)')
-            lines.append(f'    assert _answer(response) != "error", "the server failed: " + _said(response)')
             lines.append('    _nothing_shown(response, "PERMISSIONS_PATH_ID")')
         else:
             lines.append('    _nothing_shown(response, "PERMISSIONS_PATH_ID")')
             lines.append(f'    assert _answer(response) == "refused", "{role} should be refused, got " + _said(response)')
+            if role != ANONYMOUS and re.search(live_checks.PARAMETER, path):
+                # A route may turn a caller away from their own row and still let them at someone
+                # else's. Found on a real application: "you cannot delete yourself" hid a hole.
+                lines.append(f'    if _others_row("{path}"):')
+                lines.append(f'        again = _call("{role}", "{method}", "{path}", others=True)')
+                lines.append(f'        assert _answer(again) != "through", ("{role} should be refused, but got " + _said(again)')
+                lines.append('                                             + " for a row that belongs to someone else")')
         lines.append("")
     return "\n".join(lines)

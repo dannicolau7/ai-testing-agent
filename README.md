@@ -264,8 +264,10 @@ Rules it keeps:
 - It sends requests only to this machine, or to one you name with `--authorization` (who
   gave written permission, where it is filed). That line goes in the report.
 - It changes data only with `--allow-writes`.
-- Sign-in tokens come from `FINDINGS_USER_TOKEN`, `FINDINGS_OTHER_ID` and
-  `ROLE_<NAME>_TOKEN`. Their values are never written down.
+- Sign-in comes from `FINDINGS_USER_TOKEN` and `ROLE_<NAME>_TOKEN`, or the `_COOKIE` forms
+  for an application that signs in with a session cookie. Their values are never written down.
+- A redirect to the sign-in page counts as refused; "not found" and server errors count as
+  nothing shown.
 
 `--out-dir` writes `report.md`, `report.html`, `run.json` (every step and result), the
 generated tests and the proposed links. See [docs/agent.md](docs/agent.md).

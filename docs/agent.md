@@ -48,7 +48,9 @@ With `--permissions` the agent sends one request per cell of the table and sorts
 | A role the table refuses got through, or a role it allows was turned away | **Broken**: listed under Wrong now |
 | No token for that role, a write that was not allowed, no answer | **Not run** |
 
-Give each signed-in role a token in `ROLE_<NAME>_TOKEN`, for example `ROLE_ADMIN_TOKEN`.
+Give each signed-in role a token in `ROLE_<NAME>_TOKEN`, for example `ROLE_ADMIN_TOKEN`, or
+its session cookie in `ROLE_<NAME>_COOKIE` (for example `session=abc123`) for an application
+that signs in with a cookie.
 
 This also settles a suspicion the source audit cannot: "this route must refuse customers, but
 no role check is visible". If every refusal the table asks of that route was tried and held,
@@ -58,7 +60,26 @@ was not run, the finding stays.
 One id is used for every path parameter, so "own rows only" is not tried here with two
 users' data. The ownership test under "Sorting a finding" does that.
 
-## Rules
+## How an answer is read
+
+Requests are never followed through a redirect, and every answer is one of four things:
+
+| Answer | Read as |
+|---|---|
+| 401 or 403, or a redirect to a sign-in page | **refused** |
+| 2xx, or a redirect anywhere else | **let through** |
+| 404, 405, 410 | **nothing shown**: the route or the row was not found. The test is skipped |
+| 5xx | **nothing shown**: the server failed. The test is skipped |
+
+A sign-in page is recognised by its address (login, sign-in, sso, authorize). If yours is
+called something else, set `SIGN_IN_PATH` to a pattern that matches it.
+
+Give tests an id that exists (`FINDINGS_PATH_ID`), or routes with an id in the path answer
+404 and nothing is learned.
+
+A role's refusals count only if that role was seen to get through on a route the table
+allows it. Otherwise an expired token, refused everywhere, would make every refusal look fine.
+
 
 - **A model proposes; a request or a person decides.** A model never sets a verdict.
 - **No answer is not evidence.** If nothing answers at the address, the test step fails and
@@ -70,7 +91,7 @@ users' data. The ownership test under "Sorting a finding" does that.
 - **It changes data only with `--allow-writes`.** Without it, a test that sends POST, PUT,
   PATCH or DELETE is skipped, and the finding stays.
 - **Secrets stay out.** Tokens are read from `FINDINGS_USER_TOKEN`, `FINDINGS_OTHER_ID`,
-  `FINDINGS_PATH_ID` and `ROLE_<NAME>_TOKEN`. The report says which were set, never their values.
+  `FINDINGS_PATH_ID`, `ROLE_<NAME>_TOKEN`, and the `_COOKIE` forms of the same. The report says which were set, never their values.
 
 ## What it writes (`--out-dir`)
 
@@ -97,11 +118,13 @@ source code. `--no-model` turns it off even if one is configured. Confirm the pr
 
 ## What it has been tried on
 
-Two small applications with planted faults, in this project's tests: three real faults
-confirmed and one false alarm cleared; and a permissions table of twelve cells where one
-planted hole is found, eleven cells hold and one false suspicion is cleared. Writes are
-withheld until allowed, and no answer is treated as no evidence. That is all. It has not been run against a real application's test environment,
-and its browser and journey steps have run only on the demo site.
+- Small applications with planted faults, in this project's tests.
+- **One real running application**: the Flask project's tutorial application. The first run
+  gave five false alarms out of five. `docs/real-code-trial.md` says what was wrong and what
+  changed, and `trials/live_flask.py` repeats the trial on every change.
+
+That is all. One small application is not evidence about yours. Its browser and journey steps
+have run only on the demo site.
 
 ## What it cannot do yet
 
@@ -110,6 +133,8 @@ and its browser and journey steps have run only on the demo site.
 - It cannot settle findings about missing columns or request shapes, which need a request
   body.
 - It does not write journeys from requirements. A person writes them.
-- It does not sign in through a login form. Pass `--header` for the browser and the token
-  variables for the tests.
+- It does not sign in through a login form. Sign in yourself, then pass the token or the
+  session cookie in the variables above, and `--header` for the browser.
+- It does not handle forms protected by a CSRF token. A POST without one is refused for that
+  reason, which reads as "refused" whoever sent it.
 - It does not read requirements from a ticket system.

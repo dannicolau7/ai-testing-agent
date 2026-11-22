@@ -31,6 +31,8 @@ from __future__ import annotations
 import re
 from typing import List, Tuple
 
+import live_checks
+
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 _HEADER = '''"""Tests written from an application audit's findings.
@@ -49,8 +51,12 @@ Run against a TEST environment only. These tests send real requests.
                             If the fault is real, that request takes effect.
     FINDINGS_PATH_ID        the id put in path parameters (default 1)
     FINDINGS_USER_TOKEN     a bearer token for an ordinary signed-in user
+    FINDINGS_USER_COOKIE    or that user's session cookie, e.g. "session=abc123", for an
+                            application that signs in with a cookie
+    SIGN_IN_PATH            a pattern that matches the sign-in page's address, if a redirect
+                            to it is not recognised (default: login, sign-in, sso, authorize)
     FINDINGS_OTHER_ID       the id of a row that belongs to a DIFFERENT user than the one
-                            FINDINGS_USER_TOKEN signs in; needed by the ownership tests
+                            the user above; needed by the ownership tests
 """
 import os
 import re
@@ -60,29 +66,29 @@ import requests
 
 BASE = os.environ.get("FINDINGS_BASE_URL", "").rstrip("/")
 PATH_ID = os.environ.get("FINDINGS_PATH_ID", "1")
-REFUSED = (401, 403)
-PARAMETER = r"\\{[^}]*\\}|<[^>]*>|:[A-Za-z_][A-Za-z0-9_]*"
+@@HELPERS@@
 
-
-def _send(method, path, token=None, path_id=None):
+def _send(method, path, credentials=None, path_id=None):
     if not BASE:
         pytest.skip("FINDINGS_BASE_URL is not set")
     if method in ("POST", "PUT", "PATCH", "DELETE") and os.environ.get("FINDINGS_ALLOW_WRITES") != "1":
         pytest.skip("sends " + method + ", which may change data: set FINDINGS_ALLOW_WRITES=1 to run it")
     url = BASE + re.sub(PARAMETER, path_id or PATH_ID, path)
-    headers = {"Authorization": "Bearer " + token} if token else {}
     try:
-        return requests.request(method, url, headers=headers, timeout=20)
+        return requests.request(method, url, headers=credentials or {}, timeout=20, allow_redirects=False)
     except requests.exceptions.RequestException as exc:
         # No answer is not evidence either way: a test fails only when the server answered.
         pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)
 
 
-def _user_token():
-    token = os.environ.get("FINDINGS_USER_TOKEN")
-    if not token:
-        pytest.skip("FINDINGS_USER_TOKEN is not set")
-    return token
+def _user(required=True):
+    """Headers that sign in an ordinary user: a bearer token, a session cookie, or both."""
+    headers = _credentials(os.environ.get("FINDINGS_USER_TOKEN"), os.environ.get("FINDINGS_USER_COOKIE"))
+    if required and not headers:
+        pytest.skip("FINDINGS_USER_TOKEN is not set (or FINDINGS_USER_COOKIE, for an application that signs in "
+                    "with a session cookie)")
+    return headers
+
 '''
 
 
@@ -119,31 +125,36 @@ def generate(findings: list) -> Tuple[str, int, List[str]]:
         lines.append(f"    \"\"\"Audit finding: {finding.title.replace(chr(92), '/').replace(chr(34), chr(39))}\"\"\"")
         if check == "exists":
             lines += [
-                f"    response = _send({method!r}, {path!r}, os.environ.get(\"FINDINGS_USER_TOKEN\"))",
+                f"    response = _send({method!r}, {path!r}, _user(required=False))",
                 f"    assert response.status_code not in (404, 405), (",
                 f"        \"{method} {path} is not there: the server answered \" + str(response.status_code))",
             ]
         elif check == "refuses_anonymous":
             lines += [
                 f"    response = _send({method!r}, {path!r})",
-                f"    assert response.status_code in REFUSED, (",
-                f"        \"{method} {path} let a caller through without signing in: \" + str(response.status_code))",
+                "    _nothing_shown(response, \"FINDINGS_PATH_ID\")",
+                f"    assert _answer(response) == \"refused\", (",
+                f"        \"{method} {path} let a caller through without signing in: \" + _said(response))",
             ]
         elif check == "owner_only":
             lines += [
-                "    token = _user_token()",
+                "    user = _user()",
                 "    other = os.environ.get(\"FINDINGS_OTHER_ID\")",
                 "    if not other:",
                 "        pytest.skip(\"FINDINGS_OTHER_ID is not set: the id of a row owned by a different user\")",
-                f"    response = _send({method!r}, {path!r}, token, path_id=other)",
+                f"    response = _send({method!r}, {path!r}, user, path_id=other)",
+                "    if response.status_code == 401 or (300 <= response.status_code < 400 and _answer(response) == \"refused\"):",
+                "        pytest.skip(\"the sign-in was not accepted (\" + _said(response) + \"), so ownership was not tried\")",
+                "    if _answer(response) == \"error\":",
+                "        pytest.skip(\"the server failed with \" + _said(response) + \", which shows nothing about access\")",
                 "    assert response.status_code in (403, 404), (",
-                f"        \"{method} {path} gave one user another user\'s row: \" + str(response.status_code))",
+                f"        \"{method} {path} gave one user another user\'s row: \" + _said(response))",
             ]
         else:
             untested.append(finding.title)
             continue
         tests.append("\n".join(lines))
-    header = _HEADER
+    header = _HEADER.replace("@@HELPERS@@", live_checks.HELPERS)
     if untested:
         header += "\n# Findings no test was written for. They need a person, or another kind of test:\n"
         header += "".join(f"#   - {title}\n" for title in dict.fromkeys(untested))

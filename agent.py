@@ -54,7 +54,7 @@ import finding_tests
 import full_report
 
 CONFIRMED, CLEARED, NOT_RUN = "confirmed", "cleared", "not run"
-PASSTHROUGH = ("FINDINGS_USER_TOKEN", "FINDINGS_OTHER_ID", "FINDINGS_PATH_ID")
+PASSTHROUGH = ("FINDINGS_USER_TOKEN", "FINDINGS_USER_COOKIE", "FINDINGS_OTHER_ID", "FINDINGS_PATH_ID")
 
 
 class Refused(RuntimeError):
@@ -243,7 +243,8 @@ HOLDS, BROKEN = "holds", "broken"
 
 def _role_tokens() -> List[str]:
     """Names of the environment variables that hold a role's token. Never their values."""
-    return sorted(k for k in os.environ if k.startswith("ROLE_") and k.endswith("_TOKEN") and os.environ[k])
+    return sorted(k for k in os.environ
+                  if k.startswith("ROLE_") and k.endswith(("_TOKEN", "_COOKIE")) and os.environ[k])
 
 
 def _run_pytest(test_file: Path, env: dict, timeout: int) -> Tuple[Dict[str, Tuple[str, str]], str]:
@@ -286,6 +287,14 @@ def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout
         else:
             verdict, evidence = NOT_RUN, message or "it did not run"
         cells.append(Cell(role, method, path, allowed, verdict, evidence))
+    # A refusal proves something only if the sign-in works. A wrong or expired token is refused
+    # everywhere, which would make every "must refuse" cell look fine.
+    proven = {c.role for c in cells if c.allowed and c.verdict == HOLDS}
+    for c in cells:
+        if c.role != permissions.ANONYMOUS and not c.allowed and c.verdict == HOLDS and c.role not in proven:
+            c.verdict = NOT_RUN
+            c.evidence = (f"refused, but the sign-in for role {c.role} was never seen to work on a route it "
+                          "may use, so this refusal proves nothing")
     return text, cells
 
 
@@ -492,8 +501,13 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
         report.not_examined = [
             "Source: The running application was asked about the findings it could settle, and nothing else."
             if n.startswith("Source: The running application") else n for n in report.not_examined]
+    already = [(c.method, c.path) for c in run_.confirmations
+               if c.verdict == CONFIRMED and c.check == "refuses_anonymous"]
     for cell in run_.cells:
         if cell.verdict == BROKEN:
+            if cell.role == "anonymous" and not cell.allowed and any(
+                    _same_route(cell.method, cell.path, m, p) for m, p in already):
+                continue      # the same hole, already listed with its place in the code
             title = (f"{cell.role} can call {cell.method} {cell.path}, which the permissions table refuses them"
                      if not cell.allowed else
                      f"{cell.role} is turned away from {cell.method} {cell.path}, which the permissions table allows")

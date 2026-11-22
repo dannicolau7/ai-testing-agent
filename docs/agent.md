@@ -9,16 +9,18 @@ what it does, what it will not do, and what it has and has not been tried on.
    calls, spec operations, tables, and the checks the code shows.
 2. **Proposes links** (only if a model is configured and requirements were given). A model
    picks which route each requirement is about. Nothing it says changes the verdict.
-3. **Tests the findings** (only with `--url`). Each finding a request can settle becomes a
+3. **Signs in** (only with `--sign-in` and `--url`), so nobody has to copy a cookie or token
+   out of a browser.
+4. **Tests the findings** (only with `--url`). Each finding a request can settle becomes a
    test, run against your test environment. See "Sorting a finding" below.
-4. **Tries the permissions table** (only with `--permissions` and `--url`). One request for
+5. **Tries the permissions table** (only with `--permissions` and `--url`). One request for
    every role and route in the table, refusals included. See "The permissions table" below.
-5. **Browses the application** (only with `--url`, unless `--no-browser`). It follows links
+6. **Browses the application** (only with `--url`, unless `--no-browser`). It follows links
    and reports pages that throw errors, requests answered 404 or 5xx, and broken links.
-6. **Carries out journeys** (only with `--journeys` and `--url`).
-7. **Lines existing tests up with requirements** (only with `--tests`; `--validate` also
+7. **Carries out journeys** (only with `--journeys` and `--url`).
+8. **Lines existing tests up with requirements** (only with `--tests`; `--validate` also
    checks each can fail).
-8. **Writes one report.**
+9. **Writes one report.**
 
 Each step that cannot run says why and is listed as not run. The report's verdict says how
 many of the checks did not run, so a partial run cannot pass for a full one.
@@ -84,6 +86,38 @@ refuse you your own row and still let you at another user's (a "you cannot delet
 rule hid exactly that on a real application). With these, every refusal on a route with an id
 is tried against both rows. Without them, a refusal is tried with one id, is shown as holding,
 and **never clears a suspicion** from the source audit.
+
+## Signing in
+
+Copying a cookie or a token out of a browser for each role is the step most likely to stop
+anyone running the agent. `--sign-in FILE` lets it sign in itself:
+
+```yaml
+roles:
+  user:
+    request: POST /auth/login
+    form: {username: alice, password: {env: ALICE_PASSWORD}}
+  admin:
+    request: POST /api/v1/login/access-token
+    form: {username: admin@example.com, password: {env: ADMIN_PASSWORD}}
+    token: access_token
+```
+
+- `form:` sends a form, `json:` sends JSON.
+- Without `token:` the sign-in is whatever cookies the reply sets. With it, the named field of
+  the JSON reply is sent as `Authorization: Bearer …` (or `scheme: Token`, and so on).
+- The role called `user` is also used for the ownership tests and for the browser.
+- **Passwords never go in the file.** A field whose name looks secret must be `{env: NAME}`,
+  and the file is refused otherwise.
+- What a sign-in returns is held in memory for the run. It is never printed or written; the
+  report names the roles the agent signed in as, and nothing else.
+- One role failing does not stop the others. Its cells are reported as not run.
+
+`examples/sign-in/sign-in.example.yaml` is a file to copy. Use accounts made for testing.
+
+It does not handle sign-in that takes more than one request: a CSRF token fetched first, a
+second factor, or a redirect to another site. For those, sign in yourself and pass the cookie
+or token in the variables below.
 
 ## Request bodies
 
@@ -158,8 +192,8 @@ have run only on the demo site.
 - It does not yet use request bodies to settle findings about missing columns or request
   shapes.
 - It does not write journeys from requirements. A person writes them.
-- It does not sign in through a login form. Sign in yourself, then pass the token or the
-  session cookie in the variables above, and `--header` for the browser.
+- It signs in with one request only (`--sign-in`). A CSRF token, a second factor or a
+  sign-in on another site needs you to sign in and pass the cookie or token yourself.
 - It does not handle forms protected by a CSRF token. A POST without one is refused for that
   reason, which reads as "refused" whoever sent it.
 - It does not read requirements from a ticket system.

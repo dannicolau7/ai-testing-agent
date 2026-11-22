@@ -81,6 +81,8 @@ class Config:
     backend: Optional[object] = None        # a model_backend backend, or None to run without a model
     test_timeout: int = 600
     spec: str = ""                          # a file or address of the API spec, for request bodies
+    sign_in: Optional[list] = None          # sign_in.Role list: how each role signs in
+    sign_in_problems: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -122,6 +124,7 @@ class AgentRun:
     cells: List[Cell] = field(default_factory=list)
     permission_tests_text: str = ""
     bodies: Dict[str, dict] = field(default_factory=dict)
+    signed_in: List[str] = field(default_factory=list)
     provisional: List[app_audit.Finding] = field(default_factory=list)
     proposed_links: list = field(default_factory=list)
     proposed_by: str = ""
@@ -204,7 +207,7 @@ def _assertion(message: str) -> Optional[str]:
 
 
 def confirm(findings: List[app_audit.Finding], url: str, allow_writes: bool, workdir: Path,
-            timeout: int = 600, bodies=None) -> Tuple[str, List[Confirmation], List[str]]:
+            timeout: int = 600, bodies=None, extra_env=None) -> Tuple[str, List[Confirmation], List[str]]:
     """Write the tests for the findings a request can settle, run them, and sort the findings.
 
     Returns the test file, one Confirmation per testable finding, and the titles of findings
@@ -215,6 +218,7 @@ def confirm(findings: List[app_audit.Finding], url: str, allow_writes: bool, wor
     test_file.write_text(text, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("FINDINGS_")}
     env.update({k: os.environ[k] for k in PASSTHROUGH if k in os.environ})
+    env.update(extra_env or {})
     env["FINDINGS_BASE_URL"] = url
     if allow_writes:
         env["FINDINGS_ALLOW_WRITES"] = "1"
@@ -265,7 +269,7 @@ def _run_pytest(test_file: Path, env: dict, timeout: int) -> Tuple[Dict[str, Tup
 
 
 def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout: int = 600,
-                    bodies=None) -> Tuple[str, List[Cell]]:
+                    bodies=None, extra_env=None) -> Tuple[str, List[Cell]]:
     """Try every cell of the permissions table on the running system."""
     import permissions
 
@@ -273,6 +277,7 @@ def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout
     test_file = workdir / "test_permissions_table.py"
     test_file.write_text(text, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("PERMISSIONS_")}
+    env.update(extra_env or {})
     env["PERMISSIONS_BASE_URL"] = url
     if os.environ.get("FINDINGS_PATH_ID"):
         env["PERMISSIONS_PATH_ID"] = os.environ["FINDINGS_PATH_ID"]
@@ -409,6 +414,28 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
                           origin or "no API spec in the source or at the test address; requests that need a "
                                     "body are sent without one (--spec FILE or URL)"))
 
+    # 2c. Sign each role in, so nobody has to copy a cookie or a token out of a browser.
+    signed_env: Dict[str, str] = {}
+    signed = None
+    if cfg.sign_in is None and not cfg.sign_in_problems:
+        steps.append(Step("Sign in", "not run", "no sign-in file was given; tokens and cookies come from the "
+                                                "environment variables, if set"))
+    elif not cfg.url:
+        steps.append(Step("Sign in", "not run", "no address of a test environment was given (--url)"))
+    elif problem:
+        steps.append(Step("Sign in", "not run", "nothing answered at the address"))
+    else:
+        import sign_in as sign_in_module
+
+        signed = sign_in_module.sign_in(cfg.sign_in or [], cfg.url)
+        signed.failures = list(cfg.sign_in_problems) + signed.failures
+        signed_env = signed.environment()
+        if not cfg.headers:
+            cfg = dataclasses.replace(cfg, headers=signed.headers_for("user"))
+        steps.append(Step("Sign in", "done" if signed.credentials and not signed.failures else "failed",
+                          sign_in_module.describe(signed)))
+    run_.signed_in = [c.role for c in signed.credentials] if signed else []
+
     # 3. Take each finding a request can settle and settle it.
     final = list(base.findings)
     answered = False
@@ -422,7 +449,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
             holder = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="ata-agent-"))
             holder.mkdir(parents=True, exist_ok=True)
             run_.tests_text, run_.confirmations, run_.untestable = confirm(
-                base.findings, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies)
+                base.findings, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies, signed_env)
             by = {(c.method, c.path, c.check): c for c in run_.confirmations}
             final = []
             for f in base.findings:
@@ -453,7 +480,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
         holder = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="ata-agent-"))
         holder.mkdir(parents=True, exist_ok=True)
         run_.permission_tests_text, run_.cells = try_permissions(
-            cfg.policy, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies)
+            cfg.policy, cfg.url, cfg.allow_writes, holder, cfg.test_timeout, run_.bodies, signed_env)
         final, role_cleared = _settle_role_findings(final, run_.cells, model.routes)
         run_.cleared += role_cleared
         tally = {v: len([c for c in run_.cells if c.verdict == v]) for v in (HOLDS, BROKEN, NOT_RUN)}
@@ -558,7 +585,10 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
     run_.where = {
         "url": cfg.url, "on_this_machine": local if cfg.url else None, "authorization": cfg.authorization,
         "writes_allowed": cfg.allow_writes,
-        "token_variables_set": [k for k in PASSTHROUGH if os.environ.get(k)] + (_role_tokens() if run_.cells else []),
+        "token_variables_set": sorted(set(
+            [k for k in PASSTHROUGH if os.environ.get(k)] + (_role_tokens() if run_.cells else [])
+            + [k for k in signed_env if k.endswith(("_TOKEN", "_COOKIE"))])),
+        "signed_in_by_the_agent": list(run_.signed_in),
     }
     run_.needs_person = _needs_person(run_, journey_results, cfg)
     return run_
@@ -566,6 +596,9 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
 
 def _needs_person(run_: AgentRun, journey_results: list, cfg: Config) -> List[str]:
     out: List[str] = []
+    step = next((s for s in run_.steps if s.name == "Sign in"), None)
+    if step is not None and step.status == "failed":
+        out.append(f"Sign-in: {step.detail}.")
     unclear = [i for i in run_.report.items if i.group == "unclear"]
     if unclear:
         out.append(f"{len(unclear)} finding(s) the checks could not settle (listed under Unclear).")
@@ -611,6 +644,9 @@ def render_markdown(run_: AgentRun) -> str:
         if w.get("authorization"):
             extra.append(f"- Written permission: {w['authorization']}")
         extra.append("- Requests that change data: " + ("sent." if w["writes_allowed"] else "not sent."))
+        if w.get("signed_in_by_the_agent"):
+            extra.append("- The agent signed in itself as: " + ", ".join(w["signed_in_by_the_agent"])
+                         + ". Passwords came from environment variables; nothing it received is recorded.")
         extra.append("- Sign-in details supplied: " + (", ".join(w["token_variables_set"]) or "none")
                      + ". Their values are never recorded.")
         extra.append("")

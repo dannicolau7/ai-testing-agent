@@ -1,0 +1,29 @@
+# How each role signs in to the TEST environment, so the agent signs in itself.
+#
+#   ALICE_PASSWORD=... ADMIN_PASSWORD=... \
+#     python cli.py agent path/to/app -p permissions.yaml --sign-in sign-in.yaml --url http://localhost:8000
+#
+# Passwords never go in this file. Give the NAME of an environment variable: {env: NAME}.
+# A field whose name looks secret (password, token, key...) is refused unless it is given that way.
+#
+# Use accounts made for testing, never a real person's.
+
+roles:
+  # A site that signs in with a form and a session cookie. The role called `user` is also the
+  # one the ownership tests and the browser use.
+  user:
+    request: POST /auth/login
+    form: {username: alice, password: {env: ALICE_PASSWORD}}
+
+  # A site whose sign-in returns a token in a JSON reply.
+  admin:
+    request: POST /api/v1/login/access-token
+    form: {username: admin@example.com, password: {env: ADMIN_PASSWORD}}
+    token: access_token        # the field of the reply that holds the token
+    # scheme: Token            # if the application wants "Authorization: Token ..." (default: Bearer)
+
+  # JSON instead of a form:
+  # support:
+  #   request: POST /api/sessions
+  #   json: {email: support@example.com, password: {env: SUPPORT_PASSWORD}}
+  #   token: jwt

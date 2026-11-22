@@ -85,10 +85,10 @@ def _body(method, path):
     return dict(BODIES.get(method + " " + path) or {})
 
 
-def _credentials(token, cookie):
+def _credentials(token, cookie, scheme=None):
     headers = {}
     if token:
-        headers["Authorization"] = "Bearer " + token
+        headers["Authorization"] = (scheme or "Bearer") + " " + token
     if cookie:
         headers["Cookie"] = cookie
     return headers

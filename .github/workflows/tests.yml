@@ -74,6 +74,7 @@ jobs:
             test_agent.py \
             test_live_checks.py \
             test_request_bodies.py \
+            test_sign_in.py \
             -v --tb=short
 
   browser:

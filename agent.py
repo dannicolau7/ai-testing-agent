@@ -39,6 +39,7 @@ import datetime
 import ipaddress
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -98,6 +99,17 @@ class Confirmation:
 
 
 @dataclass
+class Cell:
+    """One cell of the permissions table, tried on the running system."""
+    role: str
+    method: str
+    path: str
+    allowed: bool        # what the table says
+    verdict: str         # holds | broken | not run
+    evidence: str
+
+
+@dataclass
 class AgentRun:
     report: full_report.FullReport
     audit: app_audit.AuditReport
@@ -105,6 +117,8 @@ class AgentRun:
     confirmations: List[Confirmation] = field(default_factory=list)
     cleared: List[app_audit.Finding] = field(default_factory=list)
     untestable: List[str] = field(default_factory=list)
+    cells: List[Cell] = field(default_factory=list)
+    permission_tests_text: str = ""
     provisional: List[app_audit.Finding] = field(default_factory=list)
     proposed_links: list = field(default_factory=list)
     proposed_by: str = ""
@@ -196,22 +210,12 @@ def confirm(findings: List[app_audit.Finding], url: str, allow_writes: bool, wor
     text, _, untestable = finding_tests.generate(findings)
     test_file = workdir / "test_findings.py"
     test_file.write_text(text, encoding="utf-8")
-    results_file = workdir / "results.xml"
     env = {k: v for k, v in os.environ.items() if not k.startswith("FINDINGS_")}
     env.update({k: os.environ[k] for k in PASSTHROUGH if k in os.environ})
     env["FINDINGS_BASE_URL"] = url
     if allow_writes:
         env["FINDINGS_ALLOW_WRITES"] = "1"
-    try:
-        subprocess.run([sys.executable, "-m", "pytest", str(test_file), "--junitxml", str(results_file), "-q",
-                        "-p", "no:cacheprovider", "-o", "addopts="],
-                       capture_output=True, text=True, env=env, cwd=str(workdir), timeout=timeout)
-        outcomes = _read_junit(results_file) if results_file.is_file() else {}
-        why_missing = "the test run produced no result"
-    except subprocess.TimeoutExpired:
-        outcomes, why_missing = {}, f"the test run did not finish in {timeout} seconds"
-    except ET.ParseError:
-        outcomes, why_missing = {}, "the test results could not be read"
+    outcomes, why_missing = _run_pytest(test_file, env, timeout)
 
     seen = set()
     confirmations: List[Confirmation] = []
@@ -232,6 +236,84 @@ def confirm(findings: List[app_audit.Finding], url: str, allow_writes: bool, wor
             confirmations.append(Confirmation(f.title, f.check, f.method, f.path, verdict, evidence))
             seen.add(name)
     return text, confirmations, untestable
+
+
+HOLDS, BROKEN = "holds", "broken"
+
+
+def _role_tokens() -> List[str]:
+    """Names of the environment variables that hold a role's token. Never their values."""
+    return sorted(k for k in os.environ if k.startswith("ROLE_") and k.endswith("_TOKEN") and os.environ[k])
+
+
+def _run_pytest(test_file: Path, env: dict, timeout: int) -> Tuple[Dict[str, Tuple[str, str]], str]:
+    """Run one generated test file. Returns each test's outcome, and why any are missing."""
+    results_file = test_file.with_suffix(".xml")
+    try:
+        subprocess.run([sys.executable, "-m", "pytest", str(test_file), "--junitxml", str(results_file), "-q",
+                        "-p", "no:cacheprovider", "-o", "addopts="],
+                       capture_output=True, text=True, env=env, cwd=str(test_file.parent), timeout=timeout)
+        return (_read_junit(results_file) if results_file.is_file() else {}), "the test run produced no result"
+    except subprocess.TimeoutExpired:
+        return {}, f"the test run did not finish in {timeout} seconds"
+    except ET.ParseError:
+        return {}, "the test results could not be read"
+
+
+def try_permissions(policy, url: str, allow_writes: bool, workdir: Path, timeout: int = 600) -> Tuple[str, List[Cell]]:
+    """Try every cell of the permissions table on the running system."""
+    import permissions
+
+    text = permissions.tests(policy)
+    test_file = workdir / "test_permissions_table.py"
+    test_file.write_text(text, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("PERMISSIONS_")}
+    env["PERMISSIONS_BASE_URL"] = url
+    if os.environ.get("FINDINGS_PATH_ID"):
+        env["PERMISSIONS_PATH_ID"] = os.environ["FINDINGS_PATH_ID"]
+    if allow_writes:
+        env["PERMISSIONS_ALLOW_WRITES"] = "1"
+    outcomes, why_missing = _run_pytest(test_file, env, timeout)
+    cells: List[Cell] = []
+    for name, (role, method, path, allowed) in permissions.cell_tests(policy).items():
+        outcome, message = outcomes.get(name, ("missing", why_missing))
+        if outcome == "passed":
+            verdict, evidence = HOLDS, "refused" if not allowed else "let through"
+        elif outcome == "failed" and _assertion(message) is not None:
+            verdict, evidence = BROKEN, _assertion(message) or ""
+        elif outcome == "failed":
+            verdict, evidence = NOT_RUN, f"the test itself broke: {message[:120]}"
+        else:
+            verdict, evidence = NOT_RUN, message or "it did not run"
+        cells.append(Cell(role, method, path, allowed, verdict, evidence))
+    return text, cells
+
+
+def _same_route(method: str, path: str, other_method: str, other_path: str) -> bool:
+    blank = lambda p: re.sub(r"\{[^}]*\}", "{}", p)  # noqa: E731
+    return method == other_method and app_audit._match((method, blank(path)), {(other_method, blank(other_path))})
+
+
+def _settle_role_findings(findings: List[app_audit.Finding], cells: List[Cell], routes) -> Tuple[list, list]:
+    """Source findings of the form "X must refuse <roles>, but ..." against what the cells showed.
+
+    Such a finding is cleared only if every refusal the table asks of that route was tried and
+    held. If any was broken, the finding is dropped in favour of the broken cell itself. If any
+    was not run, the finding stays.
+    """
+    kept, cleared = [], []
+    for f in findings:
+        route = next((r for r in routes if f.title.startswith(f"{r.method} {r.path} must refuse ")), None)
+        if route is None or f.check:
+            kept.append(f)
+            continue
+        refusals = [c for c in cells if not c.allowed and _same_route(c.method, c.path, route.method, route.path)]
+        if not refusals or any(c.verdict == NOT_RUN for c in refusals):
+            kept.append(f)
+        elif all(c.verdict == HOLDS for c in refusals):
+            cleared.append(f)
+        # else: a refusal is broken; the cell is reported as wrong now, which says more.
+    return kept, cleared
 
 
 # ── The run ───────────────────────────────────────────────────────────────────
@@ -316,6 +398,27 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
                               f"{len(run_.confirmations)} testable: {counts[CONFIRMED]} confirmed, "
                               f"{counts[CLEARED]} cleared, {counts[NOT_RUN]} not run"))
 
+    # 3b. Try every cell of the permissions table.
+    if cfg.policy is None:
+        steps.append(Step("Try the permissions table", "not run", "no permissions table was given"))
+    elif getattr(cfg.policy, "problems", None):
+        steps.append(Step("Try the permissions table", "not run", "the permissions file has mistakes; fix them first"))
+    elif not cfg.url:
+        steps.append(Step("Try the permissions table", "not run", "no address of a test environment was given (--url)"))
+    elif not answered:
+        steps.append(Step("Try the permissions table", "not run", "nothing answered at the address"))
+    else:
+        holder = Path(workdir) if workdir else Path(tempfile.mkdtemp(prefix="ata-agent-"))
+        holder.mkdir(parents=True, exist_ok=True)
+        run_.permission_tests_text, run_.cells = try_permissions(
+            cfg.policy, cfg.url, cfg.allow_writes, holder, cfg.test_timeout)
+        final, role_cleared = _settle_role_findings(final, run_.cells, model.routes)
+        run_.cleared += role_cleared
+        tally = {v: len([c for c in run_.cells if c.verdict == v]) for v in (HOLDS, BROKEN, NOT_RUN)}
+        steps.append(Step("Try the permissions table", "done",
+                          f"{len(run_.cells)} cells: {tally[HOLDS]} hold, {tally[BROKEN]} broken, "
+                          f"{tally[NOT_RUN]} not run"))
+
     settled = dataclasses.replace(base, findings=final)
 
     # 4. Look at the running application.
@@ -375,6 +478,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
                                url=cfg.url, today=today)
     for part_name, step_name in (("Model-proposed links", "Propose links"),
                                  ("Findings tested on the running system", "Test the findings"),
+                                 ("Permissions table tried on the running system", "Try the permissions table"),
                                  ("Journeys", "Carry out journeys")):
         step = next(s for s in steps if s.name == step_name)
         report.parts.append(full_report.Part(part_name, step.status == "done", step.detail))
@@ -388,6 +492,14 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
         report.not_examined = [
             "Source: The running application was asked about the findings it could settle, and nothing else."
             if n.startswith("Source: The running application") else n for n in report.not_examined]
+    for cell in run_.cells:
+        if cell.verdict == BROKEN:
+            title = (f"{cell.role} can call {cell.method} {cell.path}, which the permissions table refuses them"
+                     if not cell.allowed else
+                     f"{cell.role} is turned away from {cell.method} {cell.path}, which the permissions table allows")
+            report.items.append(full_report.Item(
+                "wrong_now", "Permissions test", title,
+                f"Seen on the running system: {cell.evidence}.", "permissions table"))
     for result in journey_results:
         if result.outcome == "failed":
             report.items.append(full_report.Item("wrong_now", "Journey", f"Journey “{result.journey.name}” failed",
@@ -399,7 +511,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
     run_.where = {
         "url": cfg.url, "on_this_machine": local if cfg.url else None, "authorization": cfg.authorization,
         "writes_allowed": cfg.allow_writes,
-        "token_variables_set": [k for k in PASSTHROUGH if os.environ.get(k)],
+        "token_variables_set": [k for k in PASSTHROUGH if os.environ.get(k)] + (_role_tokens() if run_.cells else []),
     }
     run_.needs_person = _needs_person(run_, journey_results, cfg)
     return run_
@@ -416,6 +528,12 @@ def _needs_person(run_: AgentRun, journey_results: list, cfg: Config) -> List[st
             waiting[c.evidence] = waiting.get(c.evidence, 0) + 1
     for reason, count in sorted(waiting.items()):
         out.append(f"{count} finding(s) not tested: {reason}.")
+    idle: Dict[str, int] = {}
+    for cell in run_.cells:
+        if cell.verdict == NOT_RUN:
+            idle[cell.evidence] = idle.get(cell.evidence, 0) + 1
+    for reason, count in sorted(idle.items()):
+        out.append(f"{count} cell(s) of the permissions table not tried: {reason}.")
     if run_.untestable:
         out.append(f"{len(run_.untestable)} finding(s) no request can settle, so each needs a person or another "
                    "kind of test.")
@@ -454,6 +572,20 @@ def render_markdown(run_: AgentRun) -> str:
             extra.append(f"| {c.title} | {'Fault is real' if c.verdict == CONFIRMED else 'Cleared'} | {c.evidence} |")
         extra += ["", "A cleared finding is removed from the lists above: the system behaved as it should "
                   "when asked, or the fault has been fixed. A real fault is listed under Wrong now.", ""]
+    role_cleared = [f for f in run_.cleared if " must refuse " in f.title and not f.check]
+    if run_.cells:
+        extra += ["## The permissions table, tried on the running system", "",
+                  "One request for each role and route in the table. “Holds” means the system did what the "
+                  "table says.", "", "| Role | Route | Table says | Result | What happened |", "|---|---|---|---|---|"]
+        for c in run_.cells:
+            result = {HOLDS: "Holds", BROKEN: "**Broken**", NOT_RUN: "Not run"}[c.verdict]
+            extra.append(f"| {c.role} | {c.method} {c.path} | {'allow' if c.allowed else 'refuse'} | {result} | {c.evidence} |")
+        extra.append("")
+        if role_cleared:
+            extra += ["Cleared by these results (the code showed no role check, but every refusal held):", ""]
+            extra += [f"- {f.title}" for f in role_cleared] + [""]
+        extra += ["A request is made with one id for every path parameter, so “own rows only” rules are not "
+                  "tried here with two users' data.", ""]
     if run_.provisional:
         extra += [f"## If the proposed links are right ({len(run_.provisional)})", "",
                   f"{run_.proposed_by} proposed which route each requirement is about. A model can be wrong, so "
@@ -482,6 +614,7 @@ def to_json(run_: AgentRun) -> str:
         "provisional_findings": [f.title for f in run_.provisional],
         "proposed_links": [{"id": p.id, "routes": p.routes} for p in run_.proposed_links],
         "proposed_by": run_.proposed_by,
+        "permission_cells": [dataclasses.asdict(c) for c in run_.cells],
         "needs_person": run_.needs_person,
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"
@@ -500,6 +633,8 @@ def write_outputs(run_: AgentRun, out_dir: Path) -> List[str]:
     put("report.md", markdown)
     put("report.html", full_report.to_html(markdown, f"Application audit report: {run_.report.app_name}"))
     put("run.json", to_json(run_))
+    if run_.permission_tests_text:
+        put("tests-from-permissions.py", run_.permission_tests_text)
     if run_.tests_text:
         put("tests-from-findings.py", run_.tests_text)
     if run_.proposed_links:

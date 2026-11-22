@@ -155,7 +155,8 @@ and catch it.
 
 Still to do: the table comes from a person, not yet from the requirements. The comparison
 with code reads names (`require_admin`, `is_admin`), which is evidence, not proof; the
-generated tests are the proof, and they have not been run against a real application. The
+generated tests are the proof, and they have not been run against a real application. Tests
+that would change data now wait for `PERMISSIONS_ALLOW_WRITES=1`. The
 tests use one id for every path parameter, so "own rows only" is not yet tested with two
 users' data.
 
@@ -210,8 +211,11 @@ configured, proposes requirement links, which never reach the verdict. Every ste
 recorded, and what was not done is listed. It sends requests only to this machine, or to one
 named with written authorization, and changes data only with `--allow-writes`.
 
-Still to do: it has run only against a small application with planted faults. It settles
-three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
+With a permissions table it also tries every cell on the running system (holds, broken, not
+run), which settles the "no role check is visible" suspicions the source audit raises.
+
+Still to do: it has run only against two small applications with planted faults. Beyond the
+permissions table it settles three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
 `--baseline`. It does not write journeys from requirements, which is the next place a model
 could help, always for a person to confirm.
 

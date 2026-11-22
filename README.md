@@ -205,7 +205,8 @@ do today; you correct it to what the product should do. `audit --permissions` th
 a route that must refuse someone and shows no check for it, and routes nobody wrote a rule
 for. `--tests` writes one pytest test per role and route, including every cell that must be
 refused. Run those against a test environment only: they send real requests. A test with no
-token for its role is skipped, never passed.
+token for its role is skipped, never passed, and a test that would change data is skipped
+unless you set `PERMISSIONS_ALLOW_WRITES=1`.
 
 ### From findings to proof
 
@@ -244,6 +245,9 @@ environment, and sorts the finding by what happened:
   The finding is removed from the lists.
 - **not run:** the test was skipped or could not complete. The finding stays as it was.
 
+With `--permissions` it also sends one request for every role and route in the table and
+reports each cell as holds, broken or not run (tokens come from `ROLE_<NAME>_TOKEN`).
+
 Then it opens the app in a browser, carries out `--journeys` if given, and writes one report
 with a plain list of what it did, what it could not do, and what needs a person.
 
@@ -260,8 +264,8 @@ Rules it keeps:
 - It sends requests only to this machine, or to one you name with `--authorization` (who
   gave written permission, where it is filed). That line goes in the report.
 - It changes data only with `--allow-writes`.
-- Sign-in tokens come from `FINDINGS_USER_TOKEN` and `FINDINGS_OTHER_ID`. Their values are
-  never written down.
+- Sign-in tokens come from `FINDINGS_USER_TOKEN`, `FINDINGS_OTHER_ID` and
+  `ROLE_<NAME>_TOKEN`. Their values are never written down.
 
 `--out-dir` writes `report.md`, `report.html`, `run.json` (every step and result), the
 generated tests and the proposed links. See [docs/agent.md](docs/agent.md).

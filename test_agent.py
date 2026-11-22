@@ -209,7 +209,7 @@ def test_the_run_record_is_stable_and_lists_every_step(source, server, tmp_path)
     first, second = agent.run(cfg), agent.run(cfg)
     a, b = json.loads(agent.to_json(first)), json.loads(agent.to_json(second))
     assert a == b
-    assert [s["name"] for s in a["steps"]] == ["Read the source", "Propose links", "Test the findings",
+    assert [s["name"] for s in a["steps"]] == ["Read the source", "Propose links", "Find request bodies", "Test the findings",
                                                "Try the permissions table", "Browse the application",
                                                "Carry out journeys"]
     assert a["ok"] is False and set(a) >= {"where", "confirmations", "cleared", "needs_person", "steps"}

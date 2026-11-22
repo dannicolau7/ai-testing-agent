@@ -62,20 +62,43 @@ users' data. The ownership test under "Sorting a finding" does that.
 
 ## How an answer is read
 
-Requests are never followed through a redirect, and every answer is one of four things:
+Requests are never followed through a redirect, and every answer is one of five things:
 
 | Answer | Read as |
 |---|---|
 | 401 or 403, or a redirect to a sign-in page | **refused** |
 | 2xx, or a redirect anywhere else | **let through** |
 | 404, 405, 410 | **nothing shown**: the route or the row was not found. The test is skipped |
+| 400, 409, 415, 422 | **nothing shown**: the request was turned down as incomplete or invalid, possibly before the access check. The test is skipped |
 | 5xx | **nothing shown**: the server failed. The test is skipped |
 
 A sign-in page is recognised by its address (login, sign-in, sso, authorize). If yours is
 called something else, set `SIGN_IN_PATH` to a pattern that matches it.
 
-Give tests an id that exists (`FINDINGS_PATH_ID`), or routes with an id in the path answer
-404 and nothing is learned.
+Give tests ids that exist, or routes with an id in the path answer 404 and nothing is
+learned. `FINDINGS_PATH_ID` is one id for every parameter. When one id does not fit all, name
+them: `PATH_IDS="id=42,user_id=7,email=a@example.com"`.
+
+**Also give ids that belong to someone else:** `OTHER_PATH_IDS="id=43,user_id=8"`. A route can
+refuse you your own row and still let you at another user's (a "you cannot delete yourself"
+rule hid exactly that on a real application). With these, every refusal on a route with an id
+is tried against both rows. Without them, a refusal is tried with one id, is shown as holding,
+and **never clears a suspicion** from the source audit.
+
+## Request bodies
+
+A POST, PUT or PATCH sent with no body is usually turned down as incomplete before anything
+is learned. The agent builds the smallest body each operation accepts from the application's
+API spec (OpenAPI or Swagger): required fields only, each with the plainest value its type
+and format allow, the same every time. It looks for the spec in `--spec FILE_OR_URL`, then in
+the source, then at the test address (`/openapi.json` and the other usual places, GET only).
+
+A body that satisfies the schema can still be turned down, for example a wrong current
+password. That counts as nothing shown. With `--allow-writes` these bodies create real rows
+in the test environment, such as a user called `audit-probe@example.com`.
+
+Cells that could destroy the test data run last: allowed deletes after everything else, and a
+delete of the caller's own account last of all.
 
 A role's refusals count only if that role was seen to get through on a route the table
 allows it. Otherwise an expired token, refused everywhere, would make every refusal look fine.
@@ -119,19 +142,21 @@ source code. `--no-model` turns it off even if one is configured. Confirm the pr
 ## What it has been tried on
 
 - Small applications with planted faults, in this project's tests.
-- **One real running application**: the Flask project's tutorial application. The first run
-  gave five false alarms out of five. `docs/real-code-trial.md` says what was wrong and what
-  changed, and `trials/live_flask.py` repeats the trial on every change.
+- **Two real running applications**: the Flask project's tutorial application (cookie sign-in)
+  and the FastAPI full-stack template (tokens, an admin role, PostgreSQL). The first run on
+  each was wrong: five false alarms out of five on one, and a real hole reported as cleared on
+  the other. `docs/real-code-trial.md` says what was wrong and what changed.
+  `trials/live_flask.py` repeats the first trial on every change.
 
-That is all. One small application is not evidence about yours. Its browser and journey steps
+That is all. Two small applications are not evidence about yours. Its browser and journey steps
 have run only on the demo site.
 
 ## What it cannot do yet
 
 - It does not repeat itself. Each run starts from the source. Comparing two runs (what was
   confirmed last time and is fixed now) uses the existing `audit --save` and `--baseline`.
-- It cannot settle findings about missing columns or request shapes, which need a request
-  body.
+- It does not yet use request bodies to settle findings about missing columns or request
+  shapes.
 - It does not write journeys from requirements. A person writes them.
 - It does not sign in through a login form. Sign in yourself, then pass the token or the
   session cookie in the variables above, and `--header` for the browser.

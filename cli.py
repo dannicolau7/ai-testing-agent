@@ -1074,7 +1074,7 @@ def cmd_agent(args):
     if not Path(args.path).is_dir():
         print(f"❌ Not a directory: {args.path}")
         sys.exit(2)
-    cfg = agent.Config(path=args.path, url=args.url or "", authorization=args.authorization or "",
+    cfg = agent.Config(path=args.path, url=args.url or "", authorization=args.authorization or "", spec=args.spec or "",
                        allow_writes=args.allow_writes, browse=not args.no_browser, validate=args.validate)
     if args.requirements:
         import traceability
@@ -1799,6 +1799,8 @@ Examples:
                               help='Let tests send POST, PUT, PATCH and DELETE. A real fault then takes effect')
     agent_parser.add_argument('--no-browser', action='store_true', help='Do not open the application in a browser')
     agent_parser.add_argument('--no-model', action='store_true', help='Do not use a model even if one is configured')
+    agent_parser.add_argument('--spec', help='API spec (OpenAPI or Swagger), a file or an address, for request bodies. '
+                              'Without it the source and the test address are searched')
     agent_parser.add_argument('--journeys', help='Journeys file (YAML) to carry out in the page')
     agent_parser.add_argument('--header', action='append', metavar="'Name: value'",
                               help='A header sent by the browser, e.g. to sign in; may be repeated')

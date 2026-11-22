@@ -32,6 +32,7 @@ import re
 from typing import List, Tuple
 
 import live_checks
+import request_bodies
 
 MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -53,6 +54,8 @@ Run against a TEST environment only. These tests send real requests.
     FINDINGS_USER_TOKEN     a bearer token for an ordinary signed-in user
     FINDINGS_USER_COOKIE    or that user's session cookie, e.g. "session=abc123", for an
                             application that signs in with a cookie
+    PATH_IDS                an id for each path parameter by name, when one id does not fit all:
+                            PATH_IDS="item_id=42,user_id=7,email=a@example.com"
     SIGN_IN_PATH            a pattern that matches the sign-in page's address, if a redirect
                             to it is not recognised (default: login, sign-in, sso, authorize)
     FINDINGS_OTHER_ID       the id of a row that belongs to a DIFFERENT user than the one
@@ -66,6 +69,8 @@ import requests
 
 BASE = os.environ.get("FINDINGS_BASE_URL", "").rstrip("/")
 PATH_ID = os.environ.get("FINDINGS_PATH_ID", "1")
+# The smallest body each route accepts, from the API spec. Empty when no spec was given.
+BODIES = @@BODIES@@
 @@HELPERS@@
 
 def _send(method, path, credentials=None, path_id=None):
@@ -73,9 +78,10 @@ def _send(method, path, credentials=None, path_id=None):
         pytest.skip("FINDINGS_BASE_URL is not set")
     if method in ("POST", "PUT", "PATCH", "DELETE") and os.environ.get("FINDINGS_ALLOW_WRITES") != "1":
         pytest.skip("sends " + method + ", which may change data: set FINDINGS_ALLOW_WRITES=1 to run it")
-    url = BASE + re.sub(PARAMETER, path_id or PATH_ID, path)
+    url = BASE + (re.sub(PARAMETER, path_id, path) if path_id else _fill(path, PATH_ID))
     try:
-        return requests.request(method, url, headers=credentials or {}, timeout=20, allow_redirects=False)
+        return requests.request(method, url, headers=credentials or {}, timeout=20, allow_redirects=False,
+                                **_body(method, path))
     except requests.exceptions.RequestException as exc:
         # No answer is not evidence either way: a test fails only when the server answered.
         pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)
@@ -101,8 +107,18 @@ def name_of_test(check: str, method: str, path: str) -> str:
     return f"test_{_slug(check)}_{_slug(method + ' ' + path)}"
 
 
-def generate(findings: list) -> Tuple[str, int, List[str]]:
-    """(the test file, how many tests it holds, titles of findings no test was written for)."""
+def generate(findings: list, bodies=None) -> Tuple[str, int, List[str]]:
+    """(the test file, how many tests it holds, titles of findings no test was written for).
+
+    `bodies` (request_bodies.from_spec) gives each route that takes a body the smallest one
+    its API spec accepts, so a request is not turned down as incomplete before the access
+    check is reached."""
+    used = {}
+    for finding in findings:
+        if finding.check and finding.method and finding.path:
+            body = request_bodies.find(bodies, finding.method, finding.path)
+            if body is not None:
+                used[f"{finding.method} {finding.path}"] = body
     tests: List[str] = []
     untested: List[str] = []
     seen = set()
@@ -147,6 +163,8 @@ def generate(findings: list) -> Tuple[str, int, List[str]]:
                 "        pytest.skip(\"the sign-in was not accepted (\" + _said(response) + \"), so ownership was not tried\")",
                 "    if _answer(response) == \"error\":",
                 "        pytest.skip(\"the server failed with \" + _said(response) + \", which shows nothing about access\")",
+                "    if _answer(response) == \"unfinished\":",
+                "        pytest.skip(\"the server turned the request down as incomplete (\" + _said(response) + \")\")",
                 "    assert response.status_code in (403, 404), (",
                 f"        \"{method} {path} gave one user another user\'s row: \" + _said(response))",
             ]
@@ -154,7 +172,7 @@ def generate(findings: list) -> Tuple[str, int, List[str]]:
             untested.append(finding.title)
             continue
         tests.append("\n".join(lines))
-    header = _HEADER.replace("@@HELPERS@@", live_checks.HELPERS)
+    header = _HEADER.replace("@@HELPERS@@", live_checks.HELPERS).replace("@@BODIES@@", repr(used))
     if untested:
         header += "\n# Findings no test was written for. They need a person, or another kind of test:\n"
         header += "".join(f"#   - {title}\n" for title in dict.fromkeys(untested))

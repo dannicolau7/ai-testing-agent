@@ -266,6 +266,10 @@ Rules it keeps:
 - It changes data only with `--allow-writes`.
 - Sign-in comes from `FINDINGS_USER_TOKEN` and `ROLE_<NAME>_TOKEN`, or the `_COOKIE` forms
   for an application that signs in with a session cookie. Their values are never written down.
+- Requests that need a body get the smallest one the application's API spec accepts
+  (`--spec`, or found in the source or at the test address).
+- Name ids for the paths with `PATH_IDS`, and ids of another user's rows with
+  `OTHER_PATH_IDS`, so a refusal is tried against someone else's row too.
 - A redirect to the sign-in page counts as refused; "not found" and server errors count as
   nothing shown.
 

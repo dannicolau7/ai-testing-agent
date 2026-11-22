@@ -197,7 +197,9 @@ Two more things had to be added before the trial could say anything about a sign
   everywhere, which made every "must refuse" cell look fine. A role's refusals now count only
   if that role was seen to get through on at least one route the table allows it.
 
-After the fixes, on the unmodified application: 10 cells tried, 10 hold, nothing reported.
+After the fixes, on the unmodified application: 10 cells, 9 hold, none broken, nothing
+reported. The tenth is a form posted with no fields, which the application turns down as
+incomplete; it has no API spec to build the form from, so that cell is not run.
 
 Then with a fault planted in a copy:
 
@@ -211,14 +213,62 @@ Then with a fault planted in a copy:
 `python trials/live_flask.py` repeats all three runs and compares them with this record. It
 runs in CI on every change.
 
+## The second live trial: API tokens, an admin role and a real database
+
+Also on 2026-11-22, the agent was run against the FastAPI full-stack template's backend at
+the pinned commit: started on the local machine with PostgreSQL, three accounts (two users
+and an administrator), and a permissions table of 23 routes by three roles, 69 cells.
+
+The application is correct, so every problem below was the agent's.
+
+| What happened | Why | Fix |
+|---|---|---|
+| 26 cells could not be tried | POST, PUT and PATCH were sent with no body, and the application turns those down as incomplete (422) | Bodies are built from the application's API spec: the smallest value each schema accepts (`request_bodies.py`). The spec comes from `--spec`, the source, or the running test environment |
+| A request turned down as incomplete was read as "let through" | 400 and 422 were not recognised | They now count as nothing shown, like "not found" |
+| One id did not fit every path | Items, users and email addresses each need their own | `PATH_IDS="id=…,user_id=…,email=…"` names an id for each parameter |
+| "A user may delete their own account" ran early, and every later cell for that user answered "not found" | Cells ran in table order | Cells that could destroy the test data run last, and an administrator's delete is aimed at another user's row when one is supplied |
+| **A real hole was reported as cleared** | See below | Refusals are also tried against another user's row |
+
+The last one is the serious one, and it only showed with a fault planted. With the
+administrator check removed from "delete a user", any signed-in user could delete any other.
+The agent tried the refusal with the caller's own id, the application answered 403 because
+it does not let anyone delete themselves through that route, and the agent recorded the
+refusal as holding. It then **cleared the source audit's correct suspicion** that the route
+showed no role check. A wrong "cleared" is worse than a false alarm: it tells the reader a
+real hole is not there.
+
+Two changes:
+
+- With `OTHER_PATH_IDS` (ids of rows that belong to a different user), each refusal on a
+  route with an id is tried against both rows. The planted hole is then found: "user should be
+  refused, but got 200 for a row that belongs to someone else".
+- Without it, a refusal seen with one id is still shown as holding, but it **no longer clears
+  a suspicion**, and the report says which variable to set.
+
+Results after the fixes, with writes allowed on the test database:
+
+| | Cells that hold | Broken | Not run |
+|---|---|---|---|
+| The application as it is | 49 | 0 | 20 |
+| With two faults planted (admin check off "delete a user"; owner check off "read an item") | 47 | 1 | 21 |
+
+On the faulty copy the owner-check fault is confirmed by a finding test ("gave one user
+another user's row: 200") and the admin-check fault by a broken cell. The cells not run are
+honest ones: routes that need a mail server, a correct current password or a valid reset
+token, none of which the agent has.
+
+This trial is not in CI: it needs PostgreSQL and Python 3.14. The behaviours it exposed are
+each reproduced by a small stand-in server in `test_request_bodies.py`.
+
 ## What these trials do not show
 
 - **Three applications, all small and well kept.** Larger and messier code will expose more.
 - **The planted faults were chosen by the person who wrote the audit.** They are the kinds
   of fault it was built to find. An outsider's list would score lower.
-- **One application has been run, a small one.** The live trial covers one Flask application
-  with cookie sign-in and no API tokens, no CSRF protection on its forms and no roles beyond
-  "signed in". The browser check has not been used on a real application.
+- **Two applications have been run, both small and well kept.** One Flask application with
+  cookie sign-in, one FastAPI application with tokens and an admin role. Neither has CSRF
+  protection, multi-step sign-in or more than two roles. The browser check has not been used
+  on a real application.
 - **No requirements document.** None of these projects has one, so the requirements checks
   are still untested on real material.
 
@@ -228,7 +278,8 @@ The gap between "works on our sample" and "works on real code" was large: 17 fin
 16 false on the first application, then 18 findings with 17 false on the next two. Each
 round on real code removed a class of false alarm that no amount of work on the sample
 would have shown. The same held the first time anything was run: five false alarms out of
-five, from three causes.
+five, from three causes. And the second application run showed a wrong "cleared", which no
+false-alarm count would have revealed.
 
 Next: Django, request shapes through generated clients, query builders in JavaScript
 (Knex, Sequelize, TypeORM), and a real requirements document.

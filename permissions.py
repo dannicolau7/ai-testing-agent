@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import app_audit
+import live_checks
 
 ANONYMOUS = "anonymous"
 _ROLE_WORDS = re.compile(r"admin|staff|superuser|role|permission|scope|moderator|manager|owner_only", re.IGNORECASE)
@@ -300,6 +301,9 @@ def tests(policy: Policy) -> str:
         "",
         "    PERMISSIONS_BASE_URL   where the application runs, e.g. http://localhost:8000",
         "    ROLE_<NAME>_TOKEN      a bearer token for each signed-in role",
+        "    ROLE_<NAME>_COOKIE     or that role's session cookie, e.g. session=abc123",
+        "    SIGN_IN_PATH           a pattern matching the sign-in page's address, if a redirect to it",
+        "                           is not recognised (default: login, sign-in, sso, authorize)",
         "    PERMISSIONS_PATH_ID    the id used for path parameters (default 1)",
         "    PERMISSIONS_ALLOW_WRITES  set to 1 to run tests that send POST, PUT, PATCH or DELETE.",
         "                           If a refusal is missing, that request takes effect.",
@@ -312,7 +316,7 @@ def tests(policy: Policy) -> str:
         "",
         'BASE = os.environ.get("PERMISSIONS_BASE_URL", "").rstrip("/")',
         'PATH_ID = os.environ.get("PERMISSIONS_PATH_ID", "1")',
-        "REFUSED = (401, 403)",
+        *live_checks.HELPERS.strip("\n").splitlines(),
         "",
         "",
         "def _call(role, method, path):",
@@ -322,25 +326,30 @@ def tests(policy: Policy) -> str:
         '        pytest.skip("sends " + method + ", which may change data: set PERMISSIONS_ALLOW_WRITES=1 to run it")',
         "    headers = {}",
         f'    if role != "{ANONYMOUS}":',
-        '        token = os.environ.get("ROLE_" + re.sub(r"\\W+", "_", role).upper() + "_TOKEN")',
-        "        if not token:",
+        '        name = "ROLE_" + re.sub(r"\\W+", "_", role).upper()',
+        '        headers = _credentials(os.environ.get(name + "_TOKEN"), os.environ.get(name + "_COOKIE"))',
+        "        if not headers:",
         '            pytest.skip("no token for role " + role)',
-        '        headers["Authorization"] = "Bearer " + token',
-        '    url = BASE + re.sub(r"\\{[^}]*\\}", PATH_ID, path)',
+        "    url = BASE + re.sub(PARAMETER, PATH_ID, path)",
         "    try:",
-        "        return requests.request(method, url, headers=headers, timeout=20)",
+        "        response = requests.request(method, url, headers=headers, timeout=20, allow_redirects=False)",
         "    except requests.exceptions.RequestException as exc:",
         "        # No answer is not evidence either way.",
         '        pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)',
+        f'    if role != "{ANONYMOUS}" and response.status_code == 401:',
+        '        pytest.skip("the sign-in for role " + role + " was not accepted (401), so this cell was not tried")',
+        "    return response",
         "",
     ]
     for name, (role, method, path, allowed) in cells.items():
         lines += ["", f"def {name}():"]
         lines.append(f'    response = _call("{role}", "{method}", "{path}")')
         if allowed:
-            lines.append(f'    assert response.status_code not in REFUSED, "{role} should be allowed: " + str(response.status_code)')
-            lines.append('    assert response.status_code < 500, "the server failed: " + str(response.status_code)')
+            lines.append(f'    assert _answer(response) != "refused", "{role} should be allowed: " + _said(response)')
+            lines.append(f'    assert _answer(response) != "error", "the server failed: " + _said(response)')
+            lines.append('    _nothing_shown(response, "PERMISSIONS_PATH_ID")')
         else:
-            lines.append(f'    assert response.status_code in REFUSED, "{role} should be refused, got " + str(response.status_code)')
+            lines.append('    _nothing_shown(response, "PERMISSIONS_PATH_ID")')
+            lines.append(f'    assert _answer(response) == "refused", "{role} should be refused, got " + _said(response)')
         lines.append("")
     return "\n".join(lines)

@@ -72,6 +72,7 @@ jobs:
             test_js_data_access.py \
             test_finding_tests.py \
             test_agent.py \
+            test_live_checks.py \
             -v --tb=short
 
   browser:
@@ -118,3 +119,10 @@ jobs:
         env:
           AI_AGENT_TELEMETRY: "false"
         run: python trials/planted_faults.py
+
+      - name: Run the live trial (the agent against a running application)
+        env:
+          AI_AGENT_TELEMETRY: "false"
+        run: |
+          pip install flask requests pytest
+          python trials/live_flask.py

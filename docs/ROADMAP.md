@@ -214,7 +214,10 @@ named with written authorization, and changes data only with `--allow-writes`.
 With a permissions table it also tries every cell on the running system (holds, broken, not
 run), which settles the "no role check is visible" suspicions the source audit raises.
 
-Still to do: it has run only against two small applications with planted faults. Beyond the
+It has been run against one real running application (`trials/live_flask.py`,
+`docs/real-code-trial.md`); the first run gave five false alarms out of five, now fixed.
+
+Still to do: one small real application is not many. Beyond the
 permissions table it settles three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
 `--baseline`. It does not write journeys from requirements, which is the next place a model
 could help, always for a person to confirm.

@@ -173,13 +173,52 @@ written in the script. It runs in CI on every change. It fails when a new findin
 an unmodified application, when a planted fault that was found is now missed, and also when
 one that was missed is now found, so that this document is updated when the audit improves.
 
+## The first live trial: the agent against a running application
+
+Everything above reads source. On 2026-11-22 the agent was run for the first time against a
+real application that was actually running: the Flask project's tutorial application, at the
+same pinned commit, started on the local machine, with a permissions table of who may reach
+which page.
+
+The application is correct. The agent's first run reported **five of its permission cells
+broken. All five were false.** Three causes, none of which the sample applications had shown:
+
+| What the application does | What the generated tests did wrong | Fix |
+|---|---|---|
+| Sends a visitor who is not signed in to the login page (a 302 redirect) | Followed the redirect, saw the login page's 200, and reported "let through" | Redirects are not followed. A redirect to a sign-in page is a refusal; any other redirect is not |
+| Writes path parameters as `<int:id>` | The permission tests filled in only `{id}`, so the request went to a path that does not exist | All three styles are filled in: `{id}`, `<id>`, `:id` |
+| Answers 404 for a row that does not exist | Counted "404" as "was not refused", so as a hole | 404, 405 and 5xx show nothing about access. The test is skipped, and says to set an id that exists |
+
+Two more things had to be added before the trial could say anything about a signed-in user:
+
+- **Cookie sign-in.** The tests could only send a bearer token. This application, like many,
+  signs in with a session cookie. `ROLE_<NAME>_COOKIE` and `FINDINGS_USER_COOKIE` now work.
+- **A refusal proves nothing if the sign-in is broken.** An expired cookie is turned away
+  everywhere, which made every "must refuse" cell look fine. A role's refusals now count only
+  if that role was seen to get through on at least one route the table allows it.
+
+After the fixes, on the unmodified application: 10 cells tried, 10 hold, nothing reported.
+
+Then with a fault planted in a copy:
+
+- **Sign-in and the author check removed from the delete route.** The agent confirms the hole
+  by a request (an anonymous delete is carried out) and lists it once.
+- **Only the sign-in decorator removed.** This is not a working hole: the route's own author
+  check then crashes for a visitor, and the server answers 500. The agent reports the cell as
+  not run because the server failed, and confirms nothing. That is the right answer, and it
+  was not planned: the first version of this trial expected a confirmed fault here.
+
+`python trials/live_flask.py` repeats all three runs and compares them with this record. It
+runs in CI on every change.
+
 ## What these trials do not show
 
 - **Three applications, all small and well kept.** Larger and messier code will expose more.
 - **The planted faults were chosen by the person who wrote the audit.** They are the kinds
   of fault it was built to find. An outsider's list would score lower.
-- **Nothing was run.** No application was started, so the browser check and the generated
-  permission tests were not used.
+- **One application has been run, a small one.** The live trial covers one Flask application
+  with cookie sign-in and no API tokens, no CSRF protection on its forms and no roles beyond
+  "signed in". The browser check has not been used on a real application.
 - **No requirements document.** None of these projects has one, so the requirements checks
   are still untested on real material.
 
@@ -188,7 +227,8 @@ one that was missed is now found, so that this document is updated when the audi
 The gap between "works on our sample" and "works on real code" was large: 17 findings with
 16 false on the first application, then 18 findings with 17 false on the next two. Each
 round on real code removed a class of false alarm that no amount of work on the sample
-would have shown.
+would have shown. The same held the first time anything was run: five false alarms out of
+five, from three causes.
 
 Next: Django, request shapes through generated clients, query builders in JavaScript
 (Knex, Sequelize, TypeORM), and a real requirements document.

@@ -219,7 +219,11 @@ run on each was wrong: five false alarms out of five on Flask, and on FastAPI a 
 reported as cleared. Both are fixed; request bodies now come from the API spec, and refusals
 are tried against another user's row.
 
-Still to do: two small real applications are not many. The FastAPI trial is not in CI. Beyond the
+`--sign-in FILE` lets the agent sign each role in itself (one request per role, passwords
+from environment variables); tried on both real applications.
+
+Still to do: two small real applications are not many. Sign-in that needs a CSRF token or a
+second factor is not handled. The FastAPI trial is not in CI. Beyond the
 permissions table it settles three kinds of finding. It has no memory between runs, so "fixed since last time" still needs
 `--baseline`. It does not write journeys from requirements, which is the next place a model
 could help, always for a person to confirm.

@@ -89,7 +89,8 @@ def _send(method, path, credentials=None, path_id=None):
 
 def _user(required=True):
     """Headers that sign in an ordinary user: a bearer token, a session cookie, or both."""
-    headers = _credentials(os.environ.get("FINDINGS_USER_TOKEN"), os.environ.get("FINDINGS_USER_COOKIE"))
+    headers = _credentials(os.environ.get("FINDINGS_USER_TOKEN"), os.environ.get("FINDINGS_USER_COOKIE"),
+                           os.environ.get("FINDINGS_USER_SCHEME"))
     if required and not headers:
         pytest.skip("FINDINGS_USER_TOKEN is not set (or FINDINGS_USER_COOKIE, for an application that signs in "
                     "with a session cookie)")

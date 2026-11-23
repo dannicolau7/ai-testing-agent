@@ -264,8 +264,10 @@ Rules it keeps:
 - It sends requests only to this machine, or to one you name with `--authorization` (who
   gave written permission, where it is filed). That line goes in the report.
 - It changes data only with `--allow-writes`.
-- Sign-in comes from `FINDINGS_USER_TOKEN` and `ROLE_<NAME>_TOKEN`, or the `_COOKIE` forms
-  for an application that signs in with a session cookie. Their values are never written down.
+- With `--sign-in FILE` the agent signs each role in itself; passwords are named as
+  environment variables, never written in the file. Otherwise sign-in comes from
+  `FINDINGS_USER_TOKEN` and `ROLE_<NAME>_TOKEN`, or the `_COOKIE` forms. No value is ever
+  written down.
 - Requests that need a body get the smallest one the application's API spec accepts
   (`--spec`, or found in the source or at the test address).
 - Name ids for the paths with `PATH_IDS`, and ids of another user's rows with

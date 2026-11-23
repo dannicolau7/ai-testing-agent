@@ -1123,6 +1123,17 @@ def cmd_agent(args):
             print(f"❌ --header must look like 'Name: value', got: {item[:40]}")
             sys.exit(2)
         cfg.headers[name.strip()] = value.strip()
+    if args.sign_in:
+        import sign_in
+
+        try:
+            cfg.sign_in, cfg.sign_in_problems = sign_in.load(Path(args.sign_in).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read sign-in file: {exc}")
+            sys.exit(2)
+        if not cfg.sign_in:
+            print("❌ The sign-in file cannot be used: " + "; ".join(cfg.sign_in_problems))
+            sys.exit(2)
     if args.tests:
         cfg.tests = args.tests
     if not args.no_model:
@@ -1799,6 +1810,8 @@ Examples:
                               help='Let tests send POST, PUT, PATCH and DELETE. A real fault then takes effect')
     agent_parser.add_argument('--no-browser', action='store_true', help='Do not open the application in a browser')
     agent_parser.add_argument('--no-model', action='store_true', help='Do not use a model even if one is configured')
+    agent_parser.add_argument('--sign-in', help='A file saying how each role signs in, so the agent signs in itself. '
+                              'Passwords are named as environment variables, never written in it')
     agent_parser.add_argument('--spec', help='API spec (OpenAPI or Swagger), a file or an address, for request bodies. '
                               'Without it the source and the test address are searched')
     agent_parser.add_argument('--journeys', help='Journeys file (YAML) to carry out in the page')

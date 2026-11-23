@@ -278,6 +278,27 @@ Rules it keeps:
 `--out-dir` writes `report.md`, `report.html`, `run.json` (every step and result), the
 generated tests and the proposed links. See [docs/agent.md](docs/agent.md).
 
+### Automated tests to keep
+
+```bash
+python cli.py automate path/to/app --url http://localhost:8000 --sign-in sign-in.yaml -o automation/
+AUTOMATION_BASE_URL=http://localhost:8000 pytest automation -rs
+```
+
+`automate` writes a test suite for the team to commit and run on every change. It has no
+dependency on this tool.
+
+- **Backend:** for every operation in the API spec, the answer is one the spec documents, a
+  success carries the fields the spec requires, a caller who is not signed in is refused, and
+  a body with no required field is turned down.
+- **Frontend:** every page the browser reached loads without an error or a failed request,
+  and every journey in `--journeys` works in the page and leaves the result in the backend.
+
+Backend tests are checked against the API spec. With no spec none are written: a test written
+from the code alone would repeat the code's bugs. A test that could change data waits for
+`AUTOMATION_ALLOW_WRITES=1`, and a test that cannot run is skipped with the reason, never
+passed. See [docs/automation.md](docs/automation.md).
+
 ### On every pull request
 
 ```bash

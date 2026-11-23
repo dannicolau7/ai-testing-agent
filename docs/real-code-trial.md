@@ -260,6 +260,28 @@ token, none of which the agent has.
 This trial is not in CI: it needs PostgreSQL and Python 3.14. The behaviours it exposed are
 each reproduced by a small stand-in server in `test_request_bodies.py`.
 
+## The generated test suites, on the same two applications
+
+`python cli.py automate` writes a suite for a team to keep (`docs/automation.md`). On
+2026-11-23 it was run against both applications as they are.
+
+- **FastAPI template:** 47 backend tests for 23 operations, from the spec the application
+  serves. 23 pass and 23 are skipped with a reason (another role needed, a body the
+  application turned down, no mail server). One fails: `POST /api/v1/private/users/` answers
+  500 when the address already exists, where its spec documents 200 and 422. That is a real
+  fault in the application, on a route meant for local use.
+- **Flask tutorial application:** it has no API spec, so no backend test is written. 7 page
+  tests and 1 journey, all passing; the journey writes a post through the page and finds it
+  in the backend.
+
+Three things were wrong on the first run and fixed before these numbers:
+
+- A missing favicon was reported as a page error. It is not one.
+- The test user being turned away from an administrator's operation (403, which the spec
+  leaves out) was a failure. It is now a skip: it says the user lacks the role, nothing more.
+- A request the application turned down as invalid, with a status the spec does not document,
+  was a failure. The body came from us, so it is now a skip.
+
 ## What these trials do not show
 
 - **Three applications, all small and well kept.** Larger and messier code will expose more.

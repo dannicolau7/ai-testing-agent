@@ -75,6 +75,7 @@ jobs:
             test_live_checks.py \
             test_request_bodies.py \
             test_sign_in.py \
+            test_automation.py \
             -v --tb=short
 
   browser:
@@ -98,9 +99,9 @@ jobs:
         env:
           AI_AGENT_TELEMETRY: "false"
         run: |
-          python -m pytest test_browser_audit.py test_journeys.py -v --tb=short -rs
+          python -m pytest test_browser_audit.py test_journeys.py test_automation_ui.py -v --tb=short -rs
           # A skip here would mean the browser did not start: fail instead of passing quietly.
-          python -m pytest test_browser_audit.py test_journeys.py -q -rs | tee result.txt
+          python -m pytest test_browser_audit.py test_journeys.py test_automation_ui.py -q -rs | tee result.txt
           ! grep -q "skipped" result.txt
 
   real-code:

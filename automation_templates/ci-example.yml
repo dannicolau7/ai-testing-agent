@@ -1,0 +1,32 @@
+# An example workflow for GitHub Actions. Copy it to .github/workflows/ in the APPLICATION's
+# repository and fill in how to start the application in a test configuration.
+#
+# Run these tests against a test environment only. Tests that change data are skipped unless
+# AUTOMATION_ALLOW_WRITES is set to 1.
+name: Automated tests
+
+on:
+  pull_request:
+
+jobs:
+  automation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the test suite
+        run: |
+          pip install -r automation/requirements.txt
+          python -m playwright install --with-deps chromium
+      - name: Start the application
+        run: |
+          echo "Replace this step: start the application in a test configuration, in the background."
+          exit 1
+      - name: Run the tests
+        env:
+          AUTOMATION_BASE_URL: http://localhost:8000
+          # Passwords named in sign-in.yaml come from repository secrets, for example:
+          # USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+        run: pytest automation -rs

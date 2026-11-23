@@ -339,6 +339,22 @@ def _settle_role_findings(findings: List[app_audit.Finding], cells: List[Cell], 
     return kept, cleared
 
 
+def find_spec(given: str, path: str, model, url: str = "") -> Tuple[Optional[dict], str]:
+    """The application's API spec: the one named, else one in the source, else the one the
+    running test environment serves. Returns (spec or None, where it came from or why not)."""
+    import request_bodies
+
+    if given:
+        return request_bodies.load(given)
+    for name in dict.fromkeys(r.file for r in model.spec_operations):
+        spec = request_bodies.parse((Path(path) / name).read_text(encoding="utf-8", errors="replace"))
+        if spec is not None:
+            return spec, name
+    if url:
+        return request_bodies.discover(url)
+    return None, ""
+
+
 # ── The run ───────────────────────────────────────────────────────────────────
 
 
@@ -394,17 +410,7 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
     import request_bodies
 
     problem = _reachable(cfg.url) if cfg.url else None
-    spec, origin = None, ""
-    if cfg.spec:
-        spec, origin = request_bodies.load(cfg.spec)
-    else:
-        for name in dict.fromkeys(r.file for r in model.spec_operations):
-            spec = request_bodies.parse((Path(cfg.path) / name).read_text(encoding="utf-8", errors="replace"))
-            if spec is not None:
-                origin = name
-                break
-        if spec is None and cfg.url and not problem:
-            spec, origin = request_bodies.discover(cfg.url)
+    spec, origin = find_spec(cfg.spec, cfg.path, model, cfg.url if not problem else "")
     if spec is not None:
         run_.bodies = request_bodies.from_spec(spec)
         steps.append(Step("Find request bodies", "done",

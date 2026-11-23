@@ -1156,6 +1156,94 @@ def cmd_agent(args):
     sys.exit(0 if result.ok else 1)
 
 
+def cmd_automate(args):
+    """Write an automated test suite for the backend and the frontend, to keep and run on every change."""
+    import agent
+    import app_audit
+    import automation
+
+    if not Path(args.path).is_dir():
+        print(f"❌ Not a directory: {args.path}")
+        sys.exit(2)
+    out_dir = Path(args.output)
+    if out_dir.exists() and any(out_dir.iterdir()) and not args.force:
+        print(f"❌ {out_dir} exists and is not empty. Choose another folder, or pass --force to write over it.")
+        sys.exit(2)
+    url = args.url or ""
+    if url:
+        try:
+            agent.check_environment(url, args.authorization or "")
+        except agent.Refused as exc:
+            print(f"❌ {exc}")
+            sys.exit(2)
+    model = app_audit.build_model(args.path)
+    reachable = bool(url) and agent._reachable(url) is None
+    if url and not reachable:
+        print(f"  Nothing answered at {url}: only what the source and a spec file give will be written.")
+    spec, origin = agent.find_spec(args.spec or "", args.path, model, url if reachable else "")
+    print(f"  API spec: {origin if spec is not None else (origin or 'none found')}")
+
+    sign_in_text, headers = "", {}
+    if args.sign_in:
+        import sign_in
+
+        try:
+            sign_in_text = Path(args.sign_in).read_text(encoding='utf-8')
+        except OSError as exc:
+            print(f"❌ Cannot read sign-in file: {exc}")
+            sys.exit(2)
+        roles, problems = sign_in.load(sign_in_text)
+        if not roles:
+            print("❌ The sign-in file cannot be used: " + "; ".join(problems))
+            sys.exit(2)
+        if reachable:
+            done = sign_in.sign_in(roles, url)
+            headers = done.headers_for("user")
+            print("  " + sign_in.describe(done))
+
+    journeys_list = None
+    if args.journeys:
+        import journeys
+
+        try:
+            journeys_list, problems = journeys.load(Path(args.journeys).read_text(encoding='utf-8'))
+        except OSError as exc:
+            print(f"❌ Cannot read journeys file: {exc}")
+            sys.exit(2)
+        for problem in problems:
+            print(f"  journeys file: {problem}")
+
+    observation, why = None, ""
+    if not url:
+        why = "no address of a running test environment was given (--url), so no page was opened."
+    elif not reachable:
+        why = "nothing answered at the address, so no page was opened."
+    elif args.no_browser:
+        why = "turned off (--no-browser)."
+    else:
+        import browser_audit
+
+        try:
+            print(f"  Opening {url} in a browser to find its pages...", flush=True)
+            observation = browser_audit.browse(url, max_pages=args.max_pages, headers=headers)
+        except browser_audit.BrowserUnavailable as exc:
+            why = str(exc)
+        except Exception as exc:  # noqa: BLE001 - a browser can fail in many ways; say so and go on
+            why = f"the browser failed: {type(exc).__name__}: {str(exc)[:120]}"
+
+    suite = automation.generate(model, spec, origin, observation, journeys_list, sign_in_text,
+                                app_name=Path(args.path).resolve().name, why_no_browser=why)
+    written = automation.write(suite, out_dir)
+    print(f"Suite → {out_dir}/ ({len(written)} files)")
+    print(f"  backend: {suite.api_tests} tests for {suite.operations} operations")
+    print(f"  frontend: {suite.pages} page tests, {suite.journeys} journey tests")
+    for note in suite.not_written:
+        print(f"  not written: {note}")
+    print(f"Run it against a TEST environment only:  AUTOMATION_BASE_URL={url or 'http://localhost:8000'} "
+          f"pytest {out_dir} -rs")
+    sys.exit(0)
+
+
 def cmd_browse(args):
     """Open the running application in a browser and report what its pages do."""
     import app_audit
@@ -1823,6 +1911,23 @@ Examples:
     agent_parser.add_argument('--out-dir', help='Write report.md, report.html, run.json, the generated tests and '
                               'the proposed links here')
 
+    # Automation: a suite to keep
+    automate_parser = subparsers.add_parser(
+        'automate',
+        help='Write an automated test suite for the backend (from the API spec) and the frontend (pages, journeys)'
+    )
+    automate_parser.add_argument('path', help='Root directory of the application source')
+    automate_parser.add_argument('--output', '-o', default='automation', help='Folder to write (default: automation)')
+    automate_parser.add_argument('--url', help='Where a TEST environment runs: used to find the spec and the pages')
+    automate_parser.add_argument('--authorization', help='Required for any machine but this one: who gave written '
+                                 'permission and where it is filed')
+    automate_parser.add_argument('--spec', help='API spec (OpenAPI or Swagger), a file or an address')
+    automate_parser.add_argument('--sign-in', help='A file saying how each role signs in; copied into the suite')
+    automate_parser.add_argument('--journeys', help='Journeys file (YAML); each becomes a test')
+    automate_parser.add_argument('--no-browser', action='store_true', help='Do not open the application in a browser')
+    automate_parser.add_argument('--max-pages', type=int, default=25, help='How many pages to open at most (default 25)')
+    automate_parser.add_argument('--force', action='store_true', help='Write into a folder that is not empty')
+
     # Journeys: a requirement carried out in the page, then checked in the backend
     journey_parser = subparsers.add_parser(
         'journey',
@@ -1914,6 +2019,8 @@ Examples:
         cmd_analyze_code(args)
     elif args.command == 'audit':
         cmd_audit(args)
+    elif args.command == 'automate':
+        cmd_automate(args)
     elif args.command == 'agent':
         cmd_agent(args)
     elif args.command == 'link':

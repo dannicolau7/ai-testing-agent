@@ -275,6 +275,9 @@ Rules it keeps:
 - A redirect to the sign-in page counts as refused; "not found" and server errors count as
   nothing shown.
 
+With `--memory FILE` the agent remembers each run and the report says what was fixed, what
+is new, what came back after being fixed, and which checks stopped running.
+
 `--out-dir` writes `report.md`, `report.html`, `run.json` (every step and result), the
 generated tests and the proposed links. See [docs/agent.md](docs/agent.md).
 

@@ -93,3 +93,75 @@ def test_a_page_that_is_gone_fails_and_no_answer_is_a_skip(site, tmp_path):
         closed = probe.getsockname()[1]
     result = _run(out, f"http://127.0.0.1:{closed}")
     assert "failed" not in result and "passed" not in result and "could not reach" in result, result
+
+
+# ── Sign-in stays with the site it is for ────────────────────────────────────
+
+from http.server import BaseHTTPRequestHandler, HTTPServer  # noqa: E402
+
+
+def _recording_server(body_for):
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            seen.append((self.path, self.headers.get("Cookie"), self.headers.get("Authorization")))
+            data = body_for(self.path).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html" if self.path == "/" else "application/javascript")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, seen
+
+
+def test_the_cookie_and_the_token_are_never_sent_to_another_site(site, tmp_path):
+    """A page loads a script from somewhere else. That somewhere else must not be handed the sign-in."""
+    other, other_seen = _recording_server(lambda path: "window.loaded = true;")
+    # A different host name: cookies are shared across ports of one host, so a second port on
+    # 127.0.0.1 would not count as another site.
+    other_url = f"http://localhost:{other.server_port}"
+    ours, our_seen = _recording_server(
+        lambda path: f"<html><body><h1>Home</h1><script src='{other_url}/lib.js'></script></body></html>"
+        if path == "/" else "")
+    our_url = f"http://127.0.0.1:{ours.server_port}"
+    secret = {"Cookie": "session=s3cret-cookie", "Authorization": "Bearer s3cret-token"}
+    try:
+        seen = browser_audit.browse(our_url, max_pages=1, headers=secret)
+        assert seen.pages and seen.pages[0].status == 200
+        home = next(entry for entry in our_seen if entry[0] == "/")
+        assert home[1] == "session=s3cret-cookie" and home[2] == "Bearer s3cret-token", "our site gets both"
+        assert any(path == "/lib.js" for path, _, _ in other_seen), "the other site was really asked"
+        assert all(cookie is None and token is None for _, cookie, token in other_seen), other_seen
+
+        # The same holds for the suite it writes.
+        suite = automation.generate(None, None, observation=seen, app_name="demo")
+        out = tmp_path / "automation"
+        automation.write(suite, out)
+        other_seen.clear()
+        result = _run(out, our_url, AUTOMATION_USER_COOKIE="session=s3cret-cookie", AUTOMATION_USER_TOKEN="s3cret-token")
+        assert "1 passed" in result, result
+        assert other_seen and all(cookie is None and token is None for _, cookie, token in other_seen), other_seen
+        assert any(cookie == "session=s3cret-cookie" and token == "Bearer s3cret-token" for _, cookie, token in our_seen)
+    finally:
+        other.shutdown()
+        ours.shutdown()
+
+
+def test_a_failing_browser_test_leaves_a_trace_and_a_passing_one_does_not(site, tmp_path):
+    url, seen = site
+    suite = automation.generate(None, None, observation=seen, app_name="demo")
+    out = tmp_path / "automation"
+    automation.write(suite, out)
+    (out / "ui" / "pages.json").write_text('{"pages": [{"path": "/"}, {"path": "/help"}]}')
+    traces = tmp_path / "traces"
+    result = _run(out, url, AUTOMATION_TRACE_DIR=str(traces))
+    assert "1 failed, 1 passed" in result, result            # /help throws by design
+    assert [p.name for p in traces.iterdir()] == ["page-help.zip"], "a trace for the failure only"
+    assert (traces / "page-help.zip").stat().st_size > 1000

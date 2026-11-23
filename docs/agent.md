@@ -137,6 +137,28 @@ delete of the caller's own account last of all.
 A role's refusals count only if that role was seen to get through on a route the table
 allows it. Otherwise an expired token, refused everywhere, would make every refusal look fine.
 
+## Memory: what changed since last time
+
+`--memory FILE` gives the agent a file to remember runs in. Keep it with the application, in
+its repository or its CI cache. With it the report opens its findings with what changed:
+
+| | Meaning |
+|---|---|
+| **Fixed** | wrong last time, not wrong now |
+| **New** | wrong now, not wrong last time |
+| **Back again** | wrong now, fine last time, wrong in an earlier run: a fix that came undone |
+| **Still wrong** | wrong both times, with the date it was first seen |
+| **Stopped running** | checked last time, not run this time |
+
+"Stopped running" is reported because a check that quietly stops running looks, in a pass
+count, exactly like a check that passes. A fault whose test did not run this time is never
+listed as fixed.
+
+The file holds names and states only (a finding's title, a permission cell, wrong or fine or
+not run), the date and the application's commit. No source, no request, no sign-in. The last
+50 runs are kept. A file that is not an agent memory is refused and left untouched.
+
+## Rules
 
 - **A model proposes; a request or a person decides.** A model never sets a verdict.
 - **No answer is not evidence.** If nothing answers at the address, the test step fails and
@@ -148,14 +170,15 @@ allows it. Otherwise an expired token, refused everywhere, would make every refu
 - **It changes data only with `--allow-writes`.** Without it, a test that sends POST, PUT,
   PATCH or DELETE is skipped, and the finding stays.
 - **Secrets stay out.** Tokens are read from `FINDINGS_USER_TOKEN`, `FINDINGS_OTHER_ID`,
-  `FINDINGS_PATH_ID`, `ROLE_<NAME>_TOKEN`, and the `_COOKIE` forms of the same. The report says which were set, never their values.
+  `FINDINGS_PATH_ID`, `ROLE_<NAME>_TOKEN`, and the `_COOKIE` forms of the same. The report
+  says which were set, never their values.
 
 ## What it writes (`--out-dir`)
 
 | File | What it is |
 |---|---|
 | `report.md`, `report.html` | The report. The HTML reads well on a phone and prints cleanly. |
-| `run.json` | Every step, every confirmation, what needs a person. Same input, same output. |
+| `run.json` | Every step, every confirmation, what changed since the last run, what needs a person. |
 | `tests-from-findings.py`, `tests-from-permissions.py` | The tests it ran. Run them yourself to see the same result. |
 | `requirement-links.yaml` | The links a model proposed, all `confirmed: false`. |
 
@@ -187,8 +210,8 @@ have run only on the demo site.
 
 ## What it cannot do yet
 
-- It does not repeat itself. Each run starts from the source. Comparing two runs (what was
-  confirmed last time and is fixed now) uses the existing `audit --save` and `--baseline`.
+- Its memory is of results, not of decisions. It cannot yet remember that a person looked at
+  a finding and judged it acceptable.
 - It does not yet use request bodies to settle findings about missing columns or request
   shapes.
 - It does not write journeys from requirements. A person writes them.

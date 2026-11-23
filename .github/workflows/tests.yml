@@ -76,6 +76,7 @@ jobs:
             test_request_bodies.py \
             test_sign_in.py \
             test_automation.py \
+            test_agent_memory.py \
             -v --tb=short
 
   browser:

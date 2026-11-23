@@ -211,7 +211,7 @@ def test_the_run_record_is_stable_and_lists_every_step(source, server, tmp_path)
     assert a == b
     assert [s["name"] for s in a["steps"]] == ["Read the source", "Propose links", "Find request bodies", "Sign in", "Test the findings",
                                                "Try the permissions table", "Browse the application",
-                                               "Carry out journeys"]
+                                               "Carry out journeys", "Compare with the last run"]
     assert a["ok"] is False and set(a) >= {"where", "confirmations", "cleared", "needs_person", "steps"}
     written = agent.write_outputs(first, tmp_path / "out")
     assert written == ["report.md", "report.html", "run.json", "tests-from-findings.py"]

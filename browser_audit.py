@@ -82,6 +82,73 @@ def _path(url: str) -> str:
     return parsed.path or "/"
 
 
+def signed_in_context(browser, base_url: str, headers: Optional[Dict[str, str]] = None):
+    """A browser context that is signed in to this site and to no other.
+
+    Playwright's `extra_http_headers` sends the headers with every request a page makes,
+    including to other sites: a font or script host would be handed the session cookie or the
+    token. Here a cookie is stored for this site alone, and any other header is added only to
+    requests that go to this site.
+    """
+    parsed = urlparse(base_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    extra = dict(headers or {})
+    cookie = ""
+    for name in list(extra):
+        if name.lower() == "cookie":
+            cookie = extra.pop(name)
+    context = browser.new_context()
+    pairs = [part.strip().split("=", 1) for part in cookie.split(";") if "=" in part]
+    if pairs:
+        context.add_cookies([{"name": name.strip(), "value": value, "url": origin} for name, value in pairs])
+    if extra:
+        def add(route):
+            request = route.request
+            if request.url == origin or request.url.startswith(origin + "/"):
+                route.continue_(headers={**request.headers, **extra})
+            else:
+                route.continue_()
+
+        context.route("**/*", add)
+    return context
+
+
+class Quiet:
+    """Knows when a page has no request in flight, so a test can wait for that and not for a guess.
+
+    `wait_for_load_state("networkidle")` only works once: after a page has been idle it returns at
+    once, even if a click has just started a new request. A fixed sleep either wastes time or is
+    too short. This counts the page's own requests and waits until none is pending.
+    """
+
+    def __init__(self, page):
+        self.page, self.pending = page, 0
+        page.on("request", self._started)
+        page.on("requestfinished", self._ended)
+        page.on("requestfailed", self._ended)
+
+    def _started(self, request):
+        if request.resource_type in ("fetch", "xhr", "document"):
+            self.pending += 1
+
+    def _ended(self, request):
+        if request.resource_type in ("fetch", "xhr", "document"):
+            self.pending = max(0, self.pending - 1)
+
+    def wait(self, timeout_ms: int = 8000) -> None:
+        """Return once nothing has been in flight for three checks in a row, or time runs out."""
+        calm, waited = 0, 0
+        while calm < 3 and waited < timeout_ms:
+            self.page.wait_for_timeout(50)
+            waited += 50
+            calm = calm + 1 if self.pending == 0 else 0
+
+
+def site_headers(headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """The sign-in headers without the cookie, for requests made outside a page."""
+    return {k: v for k, v in (headers or {}).items() if k.lower() != "cookie"}
+
+
 def browse(start: str, max_pages: int = 25, click: bool = False, headers: Optional[Dict[str, str]] = None,
            timeout_ms: int = 15000) -> Observation:
     """Open `start`, follow same-site links up to max_pages, and record what each page does."""
@@ -104,7 +171,7 @@ def browse(start: str, max_pages: int = 25, click: bool = False, headers: Option
             raise BrowserUnavailable(
                 "No browser could be started. Run `playwright install chromium`, or set ATA_BROWSER_PATH "
                 f"to an installed Chromium. ({str(exc).splitlines()[0][:120]})") from exc
-        context = browser.new_context(extra_http_headers=headers or {})
+        context = signed_in_context(browser, start, headers)
         try:
             while queue and len(seen.pages) < max_pages:
                 url, came_from = queue.pop(0)

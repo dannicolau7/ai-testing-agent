@@ -83,6 +83,7 @@ class Config:
     spec: str = ""                          # a file or address of the API spec, for request bodies
     sign_in: Optional[list] = None          # sign_in.Role list: how each role signs in
     sign_in_problems: List[str] = field(default_factory=list)
+    memory: str = ""                        # a file that remembers earlier runs
 
 
 @dataclass
@@ -125,6 +126,8 @@ class AgentRun:
     permission_tests_text: str = ""
     bodies: Dict[str, dict] = field(default_factory=dict)
     signed_in: List[str] = field(default_factory=list)
+    changes: Optional[object] = None        # agent_memory.Changes, when a memory file was given
+    remembered: bool = False
     provisional: List[app_audit.Finding] = field(default_factory=list)
     proposed_links: list = field(default_factory=list)
     proposed_by: str = ""
@@ -596,12 +599,37 @@ def run(cfg: Config, workdir: Optional[Path] = None, today: Optional[datetime.da
             + [k for k in signed_env if k.endswith(("_TOKEN", "_COOKIE"))])),
         "signed_in_by_the_agent": list(run_.signed_in),
     }
+    # Last: what changed since the run before, and remember this one.
+    if not cfg.memory:
+        steps.append(Step("Compare with the last run", "not run", "no memory file was given (--memory FILE)"))
+    else:
+        import agent_memory
+
+        try:
+            earlier = agent_memory.load(Path(cfg.memory))
+            record = agent_memory.snapshot(run_, cfg.path, today)
+            run_.changes = agent_memory.compare(record, earlier)
+            agent_memory.save(Path(cfg.memory), earlier + [record])
+            run_.remembered = True
+            c = run_.changes
+            steps.append(Step("Compare with the last run", "done",
+                              "the first run remembered" if c is None else
+                              f"{len(c.fixed)} fixed, {len(c.new)} new, {len(c.back_again)} back again, "
+                              f"{len(c.stopped_running)} stopped running"))
+        except (agent_memory.MemoryError_, OSError) as exc:
+            steps.append(Step("Compare with the last run", "failed", str(exc)[:200]))
     run_.needs_person = _needs_person(run_, journey_results, cfg)
     return run_
 
 
 def _needs_person(run_: AgentRun, journey_results: list, cfg: Config) -> List[str]:
     out: List[str] = []
+    changes = run_.changes
+    if changes is not None and changes.back_again:
+        out.append(f"{len(changes.back_again)} fault(s) that were fixed are back. See “Since the last run”.")
+    if changes is not None and changes.stopped_running:
+        out.append(f"{len(changes.stopped_running)} check(s) that ran last time did not run this time. "
+                   "They were not passed.")
     step = next((s for s in run_.steps if s.name == "Sign in"), None)
     if step is not None and step.status == "failed":
         out.append(f"Sign-in: {step.detail}.")
@@ -688,6 +716,10 @@ def render_markdown(run_: AgentRun) -> str:
         extra.append("")
     if run_.needs_person:
         extra += ["## Needs a person", ""] + [f"- {line}" for line in run_.needs_person] + [""]
+    if run_.remembered:
+        import agent_memory
+
+        extra = agent_memory.render(run_.changes) + extra
     extra += ["## What the agent did, in order", ""]
     extra += [f"{i}. **{s.name}** ({s.status}): {s.detail}" for i, s in enumerate(run_.steps, 1)]
     extra.append("")
@@ -709,6 +741,7 @@ def to_json(run_: AgentRun) -> str:
         "proposed_by": run_.proposed_by,
         "permission_cells": [dataclasses.asdict(c) for c in run_.cells],
         "operations_sent_a_body": sorted(run_.bodies),
+        "since_last_run": dataclasses.asdict(run_.changes) if run_.changes is not None else None,
         "needs_person": run_.needs_person,
     }
     return json.dumps(data, indent=2, sort_keys=True) + "\n"

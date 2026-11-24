@@ -1,0 +1,92 @@
+"""Shared by the tests in this folder: where the application is, how to sign in, how to read an answer."""
+
+import os
+import re
+
+import pytest
+import requests
+
+BASE = os.environ.get("AUTOMATION_BASE_URL", "").rstrip("/")
+PATH_ID = os.environ.get("AUTOMATION_PATH_ID", "1")
+WRITES = os.environ.get("AUTOMATION_ALLOW_WRITES") == "1"
+HERE = os.path.dirname(os.path.abspath(__file__))
+BODIES = {}
+@@HELPERS@@
+
+_signed_in = {}
+
+
+def need_base():
+    if not BASE:
+        pytest.skip("AUTOMATION_BASE_URL is not set")
+
+
+def url(path):
+    return BASE + _fill(path, PATH_ID)
+
+
+def _from_file(role):
+    """Sign in the way sign-in.yaml says. Returns headers, or None when the file has no such role."""
+    path = os.path.join(HERE, "sign-in.yaml")
+    if not os.path.isfile(path):
+        return None
+    import yaml
+
+    with open(path, encoding="utf-8") as handle:
+        entry = ((yaml.safe_load(handle) or {}).get("roles") or {}).get(role)
+    if not isinstance(entry, dict):
+        return None
+    method, _, where = str(entry.get("request", "")).strip().partition(" ")
+    fields = entry.get("json") if isinstance(entry.get("json"), dict) else entry.get("form") or {}
+    values = {}
+    for name, value in fields.items():
+        if isinstance(value, dict) and "env" in value:
+            if not os.environ.get(value["env"]):
+                pytest.skip("environment variable " + value["env"] + " is not set, so " + role + " cannot sign in")
+            values[name] = os.environ[value["env"]]
+        else:
+            values[name] = value
+    session = requests.Session()
+    how = {"json": values} if isinstance(entry.get("json"), dict) else {"data": values}
+    try:
+        reply = session.request(method or "POST", BASE + where.strip(), timeout=20, allow_redirects=False, **how)
+    except requests.exceptions.RequestException as exc:
+        pytest.skip("could not reach the sign-in address: " + type(exc).__name__)
+    if reply.status_code >= 400:
+        pytest.skip("the sign-in for " + role + " was turned down (" + str(reply.status_code) + ")")
+    token = ""
+    if entry.get("token"):
+        try:
+            token = reply.json().get(entry["token"]) or ""
+        except ValueError:
+            token = ""
+    cookie = "; ".join(k + "=" + v for k, v in sorted(session.cookies.get_dict().items()))
+    if not token and not cookie:
+        pytest.skip("the sign-in for " + role + " returned no token and set no cookie")
+    return _credentials(token, cookie, entry.get("scheme"))
+
+
+def signed_in(role="user"):
+    """Headers that sign this role in, from the environment or from sign-in.yaml. Skips when there are none."""
+    need_base()
+    if role not in _signed_in:
+        prefix = "AUTOMATION_" + role.upper()
+        headers = _credentials(os.environ.get(prefix + "_TOKEN"), os.environ.get(prefix + "_COOKIE"),
+                               os.environ.get(prefix + "_SCHEME"))
+        _signed_in[role] = headers or _from_file(role)
+    if not _signed_in[role]:
+        pytest.skip("no sign-in for " + role + ": set AUTOMATION_" + role.upper() + "_TOKEN or _COOKIE, "
+                    "or add the role to sign-in.yaml")
+    return dict(_signed_in[role])
+
+
+def send(method, path, headers=None, body=None):
+    """One request, never followed through a redirect. Skips when it must not or cannot be sent."""
+    need_base()
+    if method in ("POST", "PUT", "PATCH", "DELETE") and not WRITES:
+        pytest.skip("sends " + method + ", which may change data: set AUTOMATION_ALLOW_WRITES=1 to run it")
+    try:
+        return requests.request(method, url(path), headers=headers or {}, timeout=20, allow_redirects=False,
+                                **(body or {}))
+    except requests.exceptions.RequestException as exc:
+        pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)

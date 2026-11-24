@@ -228,6 +228,16 @@ permissions table it settles three kinds of finding. It has no memory between ru
 `--baseline`. It does not write journeys from requirements, which is the next place a model
 could help, always for a person to confirm.
 
+## Automated tests to keep (first version built)
+
+`python cli.py automate` (`automation.py`, `docs/automation.md`) writes a standalone suite:
+backend tests for every operation in the API spec, a page test for every page the browser
+reached, and a test for every journey. Tried on both real applications and the demo site; on
+the FastAPI template its one failure is a real fault in that application.
+
+Still to do: one signed-in role only. Reply fields are checked for presence, not type.
+Journeys are still written by a person. Nothing a run creates is cleaned up.
+
 ## From findings to proof (built)
 
 `audit --tests-out FILE` (`finding_tests.py`) writes a test for each finding a request can

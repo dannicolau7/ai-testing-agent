@@ -171,3 +171,49 @@ def test_generated_files_stand_alone(site, tmp_path):
                                    if not k.startswith(("FINDINGS_", "PERMISSIONS_", "ROLE_"))})
         assert "skipped" in done.stdout and "passed" not in done.stdout and "error" not in done.stdout, done.stdout
     assert Path(tmp_path / "p.py").is_file()
+
+
+def test_a_route_that_never_finishes_answering_does_not_hold_the_run_up(tmp_path, monkeypatch):
+    """Found on a real application: a live event stream stays open for as long as anyone listens.
+    Read to the end, each cell for it waited twenty seconds and was then reported as unreachable."""
+    import time
+
+    class Stream(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.headers.get("Authorization") != "Bearer v":
+                self.send_response(401)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            try:
+                for _ in range(600):                      # a minute of events, if anyone waits for them
+                    self.wfile.write(b": still here\n\n")
+                    self.wfile.flush()
+                    time.sleep(0.1)
+            except OSError:
+                pass
+
+        def log_message(self, *args):
+            pass
+
+    from http.server import ThreadingHTTPServer
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Stream)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    folder = tmp_path / "src"
+    folder.mkdir()
+    (folder / "app.py").write_text("@app.get('/events')\ndef events(user=Depends(current_user)):\n    return {}\n")
+    monkeypatch.setenv("ROLE_VIEWER_TOKEN", "v")
+    table = permissions.load("roles: [anonymous, viewer]\nrules:\n  - {route: GET /events, allow: [viewer]}\n")
+    started = time.time()
+    try:
+        run = agent.run(agent.Config(path=str(folder), policy=table, browse=False,
+                                     url=f"http://127.0.0.1:{httpd.server_port}"))
+    finally:
+        httpd.shutdown()
+    assert time.time() - started < 15, "the status and headers were enough; nobody waited for the stream to end"
+    assert _cells(run) == {("anonymous", "GET", "/events"): ("holds", "refused"),
+                           ("viewer", "GET", "/events"): ("holds", "let through")}

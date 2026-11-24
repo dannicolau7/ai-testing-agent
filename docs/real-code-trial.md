@@ -282,13 +282,35 @@ Three things were wrong on the first run and fixed before these numbers:
 - A request the application turned down as invalid, with a status the spec does not document,
   was a failure. The body came from us, so it is now a skip.
 
+## A third running application: Agent Escrow
+
+On 2026-11-24 the agent was run against Agent Escrow, our own approval proxy: FastAPI, four
+roles (agent, viewer, approver, admin) held as API keys, and a permissions table of 12
+routes by five kinds of caller, 60 cells.
+
+- 54 cells hold, none is broken, 6 were not run. Nothing was reported wrong.
+- The 6 not run are honest: the resolve route was sent the smallest body its spec accepts and
+  turned it down (there is no such action to resolve), and the checkpoint and receipt routes
+  answer "no signing key is configured".
+- Two findings were left for a person: SQL in two places is assembled from pieces. Both were
+  read by hand and are safe: the pieces are fixed text and every value is a bound parameter.
+
+One thing was wrong in the agent. The proxy has a live event stream, which stays open for as
+long as anyone listens. The tests read each answer to the end, so every cell for that route
+waited twenty seconds and was then reported as unreachable. They now read the status and the
+headers only.
+
+One thing to do differently: point the agent at the application's own folder. Given the whole
+repository, it also read a fake server kept under `scripts/` for tests, and reported that
+server's unprotected route as if it belonged to the application.
+
 ## What these trials do not show
 
 - **Three applications, all small and well kept.** Larger and messier code will expose more.
 - **The planted faults were chosen by the person who wrote the audit.** They are the kinds
   of fault it was built to find. An outsider's list would score lower.
-- **Two applications have been run, both small and well kept.** One Flask application with
-  cookie sign-in, one FastAPI application with tokens and an admin role. Neither has CSRF
+- **Three applications have been run, all small and well kept, one of them our own.** One
+  Flask application with cookie sign-in, and two FastAPI applications with tokens and roles. Neither has CSRF
   protection, multi-step sign-in or more than two roles. The browser check has not been used
   on a real application.
 - **No requirements document.** None of these projects has one, so the requirements checks

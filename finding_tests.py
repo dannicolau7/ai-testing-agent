@@ -80,8 +80,12 @@ def _send(method, path, credentials=None, path_id=None):
         pytest.skip("sends " + method + ", which may change data: set FINDINGS_ALLOW_WRITES=1 to run it")
     url = BASE + (re.sub(PARAMETER, path_id, path) if path_id else _fill(path, PATH_ID))
     try:
-        return requests.request(method, url, headers=credentials or {}, timeout=20, allow_redirects=False,
-                                **_body(method, path))
+        # stream=True: read the status and headers only. A route that keeps its answer open (a live
+        # event stream) would otherwise hold the test until it timed out.
+        response = requests.request(method, url, headers=credentials or {}, timeout=20, allow_redirects=False,
+                                    stream=True, **_body(method, path))
+        response.close()
+        return response
     except requests.exceptions.RequestException as exc:
         # No answer is not evidence either way: a test fails only when the server answered.
         pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)

@@ -42,6 +42,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import app_audit
+import browser_audit
 
 STEP_KINDS = ("open", "fill", "click", "see", "not_see")
 
@@ -148,8 +149,6 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
-        import browser_audit
-
         raise browser_audit.BrowserUnavailable(
             "Journeys need Playwright: pip install playwright && playwright install chromium") from exc
 
@@ -159,8 +158,6 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
         try:
             browser = p.chromium.launch(executable_path=os.environ.get("ATA_BROWSER_PATH") or None)
         except PlaywrightError as exc:
-            import browser_audit
-
             raise browser_audit.BrowserUnavailable(
                 "No browser could be started. Run `playwright install chromium`, or set ATA_BROWSER_PATH. "
                 f"({str(exc).splitlines()[0][:120]})") from exc
@@ -168,7 +165,7 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
             for journey in journeys:
                 result = JourneyResult(journey)
                 results.append(result)
-                context = browser.new_context(extra_http_headers=headers or {})
+                context = browser_audit.signed_in_context(browser, base_url, headers)
                 page = context.new_page()
                 page.set_default_timeout(timeout_ms)
 
@@ -178,6 +175,7 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
                         result.calls.append((request.method, urlparse(response.url).path or "/", response.status))
 
                 page.on("response", on_response)
+                quiet = browser_audit.Quiet(page)
                 try:
                     for number, (kind, value) in enumerate(journey.steps, 1):
                         where = f"step {number} ({kind})"
@@ -197,8 +195,7 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
                             if target is None:
                                 raise _StepFailed(f"{where}: nothing to click called “{value}”")
                             target.click()
-                            page.wait_for_timeout(300)                 # let the click's requests start
-                            page.wait_for_load_state("networkidle")
+                            quiet.wait(timeout_ms)       # until the requests the click started are done
                         elif kind == "see":
                             try:
                                 page.get_by_text(str(value), exact=False).first.wait_for(state="visible")
@@ -229,7 +226,9 @@ def run(journeys: List[Journey], base_url: str, headers: Optional[Dict[str, str]
 
                 if result.outcome == "passed" and journey.backend_get:
                     try:
-                        response = context.request.get(urljoin(base_url.rstrip("/") + "/", journey.backend_get.lstrip("/")))
+                        response = context.request.get(
+                            urljoin(base_url.rstrip("/") + "/", journey.backend_get.lstrip("/")),
+                            headers=browser_audit.site_headers(headers))
                         body, status = response.text(), response.status
                     except PlaywrightError as exc:
                         body, status = "", 0

@@ -18,43 +18,22 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "pages.json")
 
 @pytest.fixture(scope="module")
 def browser():
-    support.need_base()
-    try:
-        from playwright.sync_api import Error, sync_playwright
-    except ImportError:
-        pytest.skip("Playwright is not installed: pip install playwright && playwright install chromium")
-    with sync_playwright() as p:
-        try:
-            chrome = p.chromium.launch(executable_path=os.environ.get("AUTOMATION_BROWSER_PATH") or None)
-        except Error as exc:
-            pytest.skip("no browser could be started: " + str(exc).splitlines()[0][:120])
-        yield chrome
-        chrome.close()
-
-
-def _headers():
-    """Sign the browser in as the test user when a sign-in is available; otherwise browse signed out."""
-    try:
-        return support.signed_in("user")
-    except pytest.skip.Exception:
-        return {}
+    manager, chrome = support.start_browser()
+    yield chrome
+    chrome.close()
+    manager.stop()
 
 
 @pytest.mark.parametrize("page_info", [pytest.param(p, id=p["path"]) for p in PAGES])
 def test_page_loads_without_errors(browser, page_info):
     origin = "{0.scheme}://{0.netloc}".format(urlparse(support.BASE))
-    context = browser.new_context(extra_http_headers=_headers())
-    page = context.new_page()
     errors, failed = [], []
-    page.on("pageerror", lambda exc: errors.append(str(exc).splitlines()[0][:160]))
 
     def on_console(message):
         # The browser logs every failed request to the console as well. Those are reported
         # below with the address that failed, which says more.
         if message.type == "error" and not message.text.startswith("Failed to load resource"):
             errors.append(message.text[:160])
-
-    page.on("console", on_console)
 
     def on_response(response):
         request = response.request
@@ -68,17 +47,18 @@ def test_page_loads_without_errors(browser, page_info):
         if bad:
             failed.append(request.method + " " + path + " answered " + str(response.status))
 
-    page.on("response", on_response)
-    try:
-        reply = page.goto(support.BASE + page_info["path"], wait_until="networkidle", timeout=20000)
-    except Exception as exc:  # noqa: BLE001 - whatever stopped the page from loading
-        context.close()
-        if any(sign in str(exc) for sign in ("ERR_CONNECTION", "ERR_NAME_NOT_RESOLVED", "ERR_ADDRESS",
-                                               "ERR_TIMED_OUT", "ERR_INTERNET_DISCONNECTED")):
-            pytest.skip("could not reach " + support.BASE)
-        assert False, page_info["path"] + " did not load: " + str(exc).splitlines()[0][:160]
-    status = reply.status if reply is not None else 0
-    context.close()
-    assert status and status < 400, page_info["path"] + " answered " + str(status or "nothing")
-    assert not errors, page_info["path"] + " threw: " + "; ".join(errors[:3])
-    assert not failed, page_info["path"] + " made request(s) that failed: " + "; ".join(failed[:3])
+    with support.browser_page(browser, "page " + page_info["path"]) as page:
+        page.on("pageerror", lambda exc: errors.append(str(exc).splitlines()[0][:160]))
+        page.on("console", on_console)
+        page.on("response", on_response)
+        try:
+            reply = page.goto(support.BASE + page_info["path"], wait_until="networkidle", timeout=20000)
+        except Exception as exc:  # noqa: BLE001 - whatever stopped the page from loading
+            if any(sign in str(exc) for sign in ("ERR_CONNECTION", "ERR_NAME_NOT_RESOLVED", "ERR_ADDRESS",
+                                                   "ERR_TIMED_OUT", "ERR_INTERNET_DISCONNECTED")):
+                pytest.skip("could not reach " + support.BASE)
+            assert False, page_info["path"] + " did not load: " + str(exc).splitlines()[0][:160]
+        status = reply.status if reply is not None else 0
+        assert status and status < 400, page_info["path"] + " answered " + str(status or "nothing")
+        assert not errors, page_info["path"] + " threw: " + "; ".join(errors[:3])
+        assert not failed, page_info["path"] + " made request(s) that failed: " + "; ".join(failed[:3])

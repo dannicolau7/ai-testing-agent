@@ -23,18 +23,10 @@ with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "journeys.jso
 
 @pytest.fixture(scope="module")
 def browser():
-    support.need_base()
-    try:
-        from playwright.sync_api import Error, sync_playwright
-    except ImportError:
-        pytest.skip("Playwright is not installed: pip install playwright && playwright install chromium")
-    with sync_playwright() as p:
-        try:
-            chrome = p.chromium.launch(executable_path=os.environ.get("AUTOMATION_BROWSER_PATH") or None)
-        except Error as exc:
-            pytest.skip("no browser could be started: " + str(exc).splitlines()[0][:120])
-        yield chrome
-        chrome.close()
+    manager, chrome = support.start_browser()
+    yield chrome
+    chrome.close()
+    manager.stop()
 
 
 def _first(*locators):
@@ -53,14 +45,9 @@ def _same_route(wanted, actual):
 def test_journey(browser, journey):
     if not support.WRITES:
         pytest.skip("a journey saves and deletes as its steps say: set AUTOMATION_ALLOW_WRITES=1 to run it")
-    try:
-        headers = support.signed_in("user")
-    except pytest.skip.Exception:
-        headers = {}
+    from playwright.sync_api import expect
+
     origin = "{0.scheme}://{0.netloc}".format(urlparse(support.BASE))
-    context = browser.new_context(extra_http_headers=headers)
-    page = context.new_page()
-    page.set_default_timeout(8000)
     calls = []
 
     def on_response(response):
@@ -68,8 +55,10 @@ def test_journey(browser, journey):
         if request.resource_type in ("fetch", "xhr") and response.url.startswith(origin):
             calls.append((request.method, urlparse(response.url).path or "/", response.status))
 
-    page.on("response", on_response)
-    try:
+    holder = support.browser_page(browser, "journey " + journey["id"])
+    with holder as page:
+        page.on("response", on_response)
+        quiet = support.Quiet(page)
         for number, step in enumerate(journey["steps"], 1):
             (kind, value), = step.items()
             where = "step " + str(number) + " (" + kind + ")"
@@ -88,16 +77,18 @@ def test_journey(browser, journey):
                                 page.get_by_text(str(value), exact=False))
                 assert target is not None, where + ": nothing to click called “" + str(value) + "”"
                 target.click()
-                page.wait_for_timeout(300)
-                page.wait_for_load_state("networkidle")
+                quiet.wait()                                   # until the requests the click started are done
             elif kind == "see":
+                # Playwright's own assertion keeps looking until the text shows or time runs out.
                 try:
-                    page.get_by_text(str(value), exact=False).first.wait_for(state="visible")
-                except Exception:  # noqa: BLE001 - the text never appeared
+                    expect(page.get_by_text(str(value), exact=False).first).to_be_visible()
+                except AssertionError:
                     assert False, where + ": the page does not show “" + str(value) + "”"
             elif kind == "not_see":
-                assert page.get_by_text(str(value), exact=False).count() == 0, (
-                    where + ": the page shows “" + str(value) + "”, which it must not")
+                try:
+                    expect(page.get_by_text(str(value), exact=False)).to_have_count(0)
+                except AssertionError:
+                    assert False, where + ": the page shows “" + str(value) + "”, which it must not"
 
         if journey.get("page_must_call"):
             method, path = journey["page_must_call"]
@@ -109,7 +100,8 @@ def test_journey(browser, journey):
                 + ", while the page went on as if it had worked")
 
         if journey.get("backend_get"):
-            reply = context.request.get(support.BASE + "/" + journey["backend_get"].lstrip("/"))
+            reply = holder.context.request.get(support.BASE + "/" + journey["backend_get"].lstrip("/"),
+                                               headers=holder.site_headers)
             assert reply.status < 400, "GET " + journey["backend_get"] + " answered " + str(reply.status)
             body = reply.text()
             if journey.get("backend_contains"):
@@ -120,5 +112,3 @@ def test_journey(browser, journey):
                 assert journey["backend_not_contains"] not in body, (
                     "the page showed it worked, but GET " + journey["backend_get"] + " still contains “"
                     + journey["backend_not_contains"] + "”. The frontend and the backend disagree")
-    finally:
-        context.close()

@@ -90,3 +90,113 @@ def send(method, path, headers=None, body=None):
                                 **(body or {}))
     except requests.exceptions.RequestException as exc:
         pytest.skip("could not reach " + BASE + ": " + type(exc).__name__)
+
+
+# ── The browser ───────────────────────────────────────────────────────────────
+
+TRACES = os.environ.get("AUTOMATION_TRACE_DIR", os.path.join(HERE, "test-results"))
+
+
+def start_browser():
+    """A browser for a module of tests, or a skip that says what is missing."""
+    need_base()
+    try:
+        from playwright.sync_api import Error, sync_playwright
+    except ImportError:
+        pytest.skip("Playwright is not installed: pip install playwright && playwright install chromium")
+    manager = sync_playwright().start()
+    try:
+        chrome = manager.chromium.launch(executable_path=os.environ.get("AUTOMATION_BROWSER_PATH") or None)
+    except Error as exc:
+        manager.stop()
+        pytest.skip("no browser could be started: " + str(exc).splitlines()[0][:120])
+    return manager, chrome
+
+
+def user_headers():
+    """Sign-in headers for the test user, or none: a page test may run signed out."""
+    try:
+        return signed_in("user")
+    except pytest.skip.Exception:
+        return {}
+
+
+class Quiet:
+    """Knows when a page has no request in flight, so a test waits for that and not for a guess.
+
+    `wait_for_load_state("networkidle")` only works once per page: after the page has been idle it
+    returns at once, even if a click has just started a new request.
+    """
+
+    def __init__(self, page):
+        self.page, self.pending = page, 0
+        page.on("request", lambda r: self._count(r, 1))
+        page.on("requestfinished", lambda r: self._count(r, -1))
+        page.on("requestfailed", lambda r: self._count(r, -1))
+
+    def _count(self, request, change):
+        if request.resource_type in ("fetch", "xhr", "document"):
+            self.pending = max(0, self.pending + change)
+
+    def wait(self, timeout_ms=8000):
+        calm = waited = 0
+        while calm < 3 and waited < timeout_ms:
+            self.page.wait_for_timeout(50)
+            waited += 50
+            calm = calm + 1 if self.pending == 0 else 0
+
+
+class browser_page:
+    """A page signed in to this site and to no other, with a trace kept when the test fails.
+
+        with support.browser_page(browser, "name of the test") as page:
+            ...
+
+    Sign-in is scoped to the site: the cookie is stored for it alone, and a token is added only
+    to requests that go to it. Sent as a plain extra header, either would also be handed to every
+    other site the page loads from.
+
+    A failing test leaves test-results/<name>.zip. Open it with: playwright show-trace <file>
+    """
+
+    def __init__(self, browser, name, headers=None):
+        self.browser, self.name = browser, re.sub(r"\W+", "-", name).strip("-")[:80] or "test"
+        self.headers = dict(user_headers() if headers is None else headers)
+
+    def __enter__(self):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(BASE)
+        origin = parsed.scheme + "://" + parsed.netloc
+        extra = {k: v for k, v in self.headers.items() if k.lower() != "cookie"}
+        cookie = next((v for k, v in self.headers.items() if k.lower() == "cookie"), "")
+        self.context = self.browser.new_context()
+        pairs = [part.strip().split("=", 1) for part in cookie.split(";") if "=" in part]
+        if pairs:
+            self.context.add_cookies([{"name": n.strip(), "value": v, "url": origin} for n, v in pairs])
+        if extra:
+            def add(route):
+                request = route.request
+                if request.url == origin or request.url.startswith(origin + "/"):
+                    route.continue_(headers=dict(request.headers, **extra))
+                else:
+                    route.continue_()
+
+            self.context.route("**/*", add)
+        self.site_headers = extra
+        self.context.tracing.start(screenshots=True, snapshots=True)
+        page = self.context.new_page()
+        page.set_default_timeout(8000)
+        return page
+
+    def __exit__(self, kind, error, trace):
+        failed = kind is not None and not issubclass(kind, pytest.skip.Exception)
+        try:
+            if failed:
+                os.makedirs(TRACES, exist_ok=True)
+                self.context.tracing.stop(path=os.path.join(TRACES, self.name + ".zip"))
+            else:
+                self.context.tracing.stop()
+        finally:
+            self.context.close()
+        return False

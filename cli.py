@@ -1075,6 +1075,7 @@ def cmd_agent(args):
         print(f"❌ Not a directory: {args.path}")
         sys.exit(2)
     cfg = agent.Config(path=args.path, url=args.url or "", authorization=args.authorization or "", spec=args.spec or "",
+                       memory=args.memory or "",
                        allow_writes=args.allow_writes, browse=not args.no_browser, validate=args.validate)
     if args.requirements:
         import traceability
@@ -1898,6 +1899,8 @@ Examples:
                               help='Let tests send POST, PUT, PATCH and DELETE. A real fault then takes effect')
     agent_parser.add_argument('--no-browser', action='store_true', help='Do not open the application in a browser')
     agent_parser.add_argument('--no-model', action='store_true', help='Do not use a model even if one is configured')
+    agent_parser.add_argument('--memory', help='A file that remembers earlier runs, so the report says what was '
+                              'fixed, what is new, what came back and which checks stopped running')
     agent_parser.add_argument('--sign-in', help='A file saying how each role signs in, so the agent signs in itself. '
                               'Passwords are named as environment variables, never written in it')
     agent_parser.add_argument('--spec', help='API spec (OpenAPI or Swagger), a file or an address, for request bodies. '

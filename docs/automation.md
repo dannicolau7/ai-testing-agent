@@ -53,6 +53,26 @@ generate the folder again (`--force` writes over it).
 - The tool that writes the suite opens only this machine, or one named with
   `--authorization`.
 
+## How the browser tests are written
+
+They use Playwright, and follow its current practice:
+
+- **Elements are found the way a user finds them**: by label, by role and name, by visible
+  text. Not by CSS classes or position, which break when the page is restyled.
+- **Assertions wait.** "The page shows this text" keeps looking until it does or time runs
+  out, so a slow page is not a failed test.
+- **No fixed sleeps.** After a click the test waits until the page has no request in flight.
+  (`wait_for_load_state("networkidle")` is not used for this: it returns at once on a page
+  that has already been idle, which made an early version of these tests flaky.)
+- **A failing test leaves a trace**: `test-results/<name>.zip`, with a screenshot of every
+  step, the page at each moment and every request. Open it with `playwright show-trace`. A
+  passing test leaves nothing.
+- **Sign-in stays with the site.** The cookie is stored for the application's host alone and a
+  token is added only to requests that go to it. Sent as an ordinary extra header, either would
+  also be handed to every other site the page loads a script or a font from.
+- **Each test has a fresh browser context**, so one test's sign-in or data never leaks into
+  the next.
+
 ## What it has been tried on
 
 | Application | What was generated | Result on the unmodified application |
